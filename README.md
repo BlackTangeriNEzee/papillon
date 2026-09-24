@@ -138,5 +138,4 @@ Open Settings with Cmd+, from the menu bar icon, or from the sidebar; it is a pa
 
 ## Icon
 
-The app icon and the menu bar icon show Clawd, the Claude Code pixel mascot, redrawn from its cell grid by `mac/make-icon.swift` on every build.
-The mascot artwork belongs to Anthropic; it is used here for personal use only.
+The app icon and the menu bar icon are made from the user's own photo, `mac/icon-source.png`, by `mac/make-icon.swift` on every build: a square crop of the cat in the rounded-square icon shape, and a round crop of its face for the menu bar.

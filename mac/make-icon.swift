@@ -1,30 +1,13 @@
 import AppKit
 
-let output = URL(fileURLWithPath: CommandLine.arguments[1])
-let cream = CGColor(srgbRed: 0xF4 / 255, green: 0xF3 / 255, blue: 0xEE / 255, alpha: 1)
-let terracotta = CGColor(srgbRed: 0xD9 / 255, green: 0x77 / 255, blue: 0x57 / 255, alpha: 1)
-
-let grid = [
-    ".xxxxxxxxx.",
-    ".xxxxxxxxx.",
-    "xx.xxxxx.xx",
-    "xxxxxxxxxxx",
-    ".xxxxxxxxx.",
-    ".xxxxxxxxx.",
-    ".x.x...x.x.",
-    ".x.x...x.x.",
-]
-
-func drawClawd(_ context: CGContext, center: CGPoint, cell: CGSize, color: CGColor) {
-    let columns = grid[0].count, rows = grid.count
-    let origin = CGPoint(x: (center.x - CGFloat(columns) * cell.width / 2).rounded(), y: (center.y - CGFloat(rows) * cell.height / 2).rounded())
-    context.setFillColor(color)
-    for (row, line) in grid.enumerated() {
-        for (column, character) in line.enumerated() where character == "x" {
-            context.fill(CGRect(x: origin.x + CGFloat(column) * cell.width, y: origin.y + CGFloat(rows - 1 - row) * cell.height, width: cell.width, height: cell.height))
-        }
-    }
+let root = URL(fileURLWithPath: CommandLine.arguments[1])
+let output = URL(fileURLWithPath: CommandLine.arguments[2])
+guard let photo = NSImage(contentsOf: root.appendingPathComponent("mac/icon-source.png"))?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+    FileHandle.standardError.write("mac/icon-source.png could not be read\n".data(using: .utf8)!)
+    exit(1)
 }
+let appCrop = photo.cropping(to: CGRect(x: 470, y: 20, width: 800, height: 800))!
+let faceCrop = photo.cropping(to: CGRect(x: 620, y: 230, width: 420, height: 420))!
 
 func squircle(_ rect: CGRect) -> CGPath {
     let path = CGMutablePath()
@@ -40,40 +23,47 @@ func squircle(_ rect: CGRect) -> CGPath {
     return path
 }
 
-func render(_ width: Int, _ height: Int, draw: (CGContext) -> Void) -> Data {
-    let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-    context.setShouldAntialias(false)
-    draw(context)
+func render(_ size: Int, draw: (CGContext, CGFloat) -> Void) -> Data {
+    let context = CGContext(data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+    context.interpolationQuality = .high
+    draw(context, CGFloat(size))
     return NSBitmapImageRep(cgImage: context.makeImage()!).representation(using: .png, properties: [:])!
 }
 
-func appIcon(_ size: Int) -> Data {
-    render(size, size) { context in
-        let side = CGFloat(size)
-        let square = CGRect(x: side * 100 / 1024, y: side * 100 / 1024, width: side * 824 / 1024, height: side * 824 / 1024)
-        context.saveGState()
-        context.setShouldAntialias(true)
-        context.setShadow(offset: CGSize(width: 0, height: -side * 0.01), blur: side * 0.03, color: CGColor(gray: 0, alpha: 0.25))
-        context.addPath(squircle(square))
-        context.setFillColor(cream)
-        context.fillPath()
-        context.restoreGState()
-        let exact = square.width * 0.7 / CGFloat(grid[0].count)
-        let width = exact >= 2 ? exact.rounded(.down) : exact
-        let height = exact >= 2 ? (width * 1.1).rounded() : width * 1.1
-        drawClawd(context, center: CGPoint(x: square.midX, y: square.midY), cell: CGSize(width: width, height: height), color: terracotta)
-    }
+func appIcon(_ context: CGContext, _ side: CGFloat) {
+    let square = CGRect(x: side * 100 / 1024, y: side * 100 / 1024, width: side * 824 / 1024, height: side * 824 / 1024)
+    let shape = squircle(square)
+    context.saveGState()
+    context.setShadow(offset: CGSize(width: 0, height: -side * 0.01), blur: side * 0.03, color: CGColor(gray: 0, alpha: 0.3))
+    context.addPath(shape)
+    context.setFillColor(CGColor(gray: 1, alpha: 1))
+    context.fillPath()
+    context.restoreGState()
+    context.addPath(shape)
+    context.clip()
+    context.draw(appCrop, in: square)
+}
+
+func statusIcon(_ context: CGContext, _ side: CGFloat) {
+    let line = side / 18
+    let circle = CGRect(x: 0, y: 0, width: side, height: side).insetBy(dx: line / 2, dy: line / 2)
+    context.saveGState()
+    context.addEllipse(in: circle)
+    context.clip()
+    context.draw(faceCrop, in: CGRect(x: 0, y: 0, width: side, height: side))
+    context.restoreGState()
+    context.setStrokeColor(CGColor(srgbRed: 0.35, green: 0.22, blue: 0.12, alpha: 0.85))
+    context.setLineWidth(line)
+    context.strokeEllipse(in: circle)
 }
 
 let iconset = output.appendingPathComponent("AppIcon.iconset")
 try? FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
 for (name, size) in [("16x16", 16), ("16x16@2x", 32), ("32x32", 32), ("32x32@2x", 64), ("128x128", 128), ("128x128@2x", 256), ("256x256", 256), ("256x256@2x", 512), ("512x512", 512), ("512x512@2x", 1024)] {
-    try appIcon(size).write(to: iconset.appendingPathComponent("icon_\(name).png"))
+    try render(size, draw: appIcon).write(to: iconset.appendingPathComponent("icon_\(name).png"))
 }
-let statusCell = CGSize(width: 3, height: 4)
-try render(grid[0].count * Int(statusCell.width), grid.count * Int(statusCell.height)) { context in
-    drawClawd(context, center: CGPoint(x: CGFloat(grid[0].count) * statusCell.width / 2, y: CGFloat(grid.count) * statusCell.height / 2), cell: statusCell, color: CGColor(gray: 0, alpha: 1))
-}.write(to: output.appendingPathComponent("StatusIcon@2x.png"))
+try render(18, draw: statusIcon).write(to: output.appendingPathComponent("StatusIcon.png"))
+try render(36, draw: statusIcon).write(to: output.appendingPathComponent("StatusIcon@2x.png"))
 let iconutil = Process()
 iconutil.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
 iconutil.arguments = ["-c", "icns", iconset.path, "-o", output.appendingPathComponent("AppIcon.icns").path]
