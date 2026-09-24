@@ -289,7 +289,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func showSettings() {
-        store.apis = Provider.all.map(APISettings.stored)
         store.apiNotes = [:]
         store.page = .settings
         showWindow()

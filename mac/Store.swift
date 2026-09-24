@@ -161,6 +161,17 @@ final class Search: ObservableObject {
     }
 }
 
+struct SourceItem: Identifiable, Equatable {
+    let source: Source
+    var enabled: Bool
+
+    var id: String { source.id }
+
+    static func load(_ providers: [Provider]) -> [SourceItem] {
+        Source.stored(providers).map { SourceItem(source: $0.source, enabled: $0.enabled) }
+    }
+}
+
 @MainActor
 final class Store: ObservableObject {
     @Published var page = Page.lookup {
@@ -180,11 +191,16 @@ final class Store: ObservableObject {
     @Published var ocrText = ""
     @Published var ocrNote: Note?
     @Published var ocrResult: Load<Translated>?
-    @Published var apis: [APISettings] = {
-        APISettings.migrate()
-        return Provider.all.map(APISettings.stored)
-    }()
-    @Published var apiNotes: [Provider: Note] = [:]
+    @Published var providers = Provider.stored() {
+        didSet {
+            Provider.save(providers)
+            if providers.map(\.id) != oldValue.map(\.id) { sources = SourceItem.load(providers) }
+        }
+    }
+    @Published var sources = SourceItem.load(Provider.stored()) {
+        didSet { Source.save(sources.map { ($0.source, $0.enabled) }) }
+    }
+    @Published var apiNotes: [String: Note] = [:]
     @Published var uiLanguage = UILanguage(rawValue: UserDefaults.standard.string(forKey: "uiLanguage") ?? "") ?? .system {
         didSet {
             UserDefaults.standard.set(uiLanguage.rawValue, forKey: "uiLanguage")
@@ -232,9 +248,6 @@ final class Store: ObservableObject {
     @Published var captureNote: Note?
     var onCaptureChanged: () -> Void = {}
     let documents = Documents()
-    @Published var ignoreAPIKeys = UserDefaults.standard.bool(forKey: "ignoreAPIKeys") {
-        didSet { UserDefaults.standard.set(ignoreAPIKeys, forKey: "ignoreAPIKeys") }
-    }
     var onSelectChanged: () -> Void = {}
     var takeScreenshot: () -> Void = {}
     var openSettings: () -> Void = {}
@@ -327,35 +340,38 @@ final class Store: ObservableObject {
         Task { ocrResult = await load { try await Translator.text(text) } }
     }
 
-    func persist(_ provider: Provider) {
-        guard let api = apis.first(where: { $0.provider == provider })?.trimmed else { return }
-        let stored = APISettings.stored(provider)
-        guard (api.base, api.key, api.model) != (stored.base, stored.key, stored.model) else { return }
-        api.save()
-        apiNotes[provider] = Note(text: api.key.isEmpty ? L("已保存，没有密钥，不使用", "Saved without a key, not used") : L("已保存", "Saved"))
+    func addProvider(_ preset: Provider?) {
+        var provider = preset ?? Provider()
+        provider.id = UUID().uuidString
+        providers.append(provider)
     }
 
-    func clearSettings(_ provider: Provider) {
-        guard let index = apis.firstIndex(where: { $0.provider == provider }) else { return }
-        apis[index] = APISettings(provider: provider)
-        apis[index].save()
-        apiNotes[provider] = Note(text: L("已清除", "Cleared"))
+    func deleteProvider(_ id: String) {
+        providers.removeAll { $0.id == id }
+        apiNotes[id] = nil
     }
 
-    func testSettings(_ provider: Provider) {
-        guard let api = apis.first(where: { $0.provider == provider })?.trimmed.effective else {
-            apiNotes[provider] = Note(text: L("请先填写 API 密钥", "Fill in the API key first"), isError: true)
+    func moveSource(_ from: IndexSet, _ to: Int) {
+        sources.move(fromOffsets: from, toOffset: to)
+    }
+
+    func resetOrder() {
+        sources = Source.defaultOrder(providers).map { SourceItem(source: $0, enabled: true) }
+    }
+
+    func testProvider(_ id: String) {
+        guard let provider = providers.first(where: { $0.id == id }) else { return }
+        guard provider.usable else {
+            apiNotes[id] = Note(text: L("请先填写地址、密钥和模型", "Fill in the base URL, key and model first"), isError: true)
             return
         }
-        persist(provider)
-        let prefix = L("已保存。", "Saved. ")
-        apiNotes[provider] = Note(text: prefix + L("测试中…", "Testing…"))
+        apiNotes[id] = Note(text: L("测试中…", "Testing…"))
         Task {
             do {
-                let reply = try await Translator.callApi(api, system: "Translate the user's text into Simplified Chinese. Reply with the translation only.", text: "hello")
-                apiNotes[provider] = Note(text: prefix + L("测试成功：", "Test passed: ") + reply)
+                let reply = try await Translator.callApi(provider.trimmed, system: "Translate the user's text into Simplified Chinese. Reply with the translation only.", text: "hello")
+                apiNotes[id] = Note(text: L("测试成功：", "Test passed: ") + reply)
             } catch {
-                apiNotes[provider] = Note(text: prefix + L("测试失败：", "Test failed: ") + error.localizedDescription, isError: true)
+                apiNotes[id] = Note(text: L("测试失败：", "Test failed: ") + error.localizedDescription, isError: true)
             }
         }
     }

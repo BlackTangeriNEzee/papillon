@@ -353,19 +353,12 @@ struct SourcesCard: View {
                 Image(systemName: "point.3.connected.trianglepath.dotted").foregroundStyle(Theme.accent.color)
                 Text(L("翻译来源", "Sources")).font(.system(.headline, design: .serif))
             }
-            row(L("有道词典", "Youdao dictionary"), on: true, L("免费 · 单词和短语", "Free · words and phrases"))
-            ForEach(store.apis, id: \.provider) { api in
-                if store.ignoreAPIKeys {
-                    row(api.provider.name, on: false, L("已忽略（测试）", "Ignored (testing)"))
-                } else if let effective = api.trimmed.effective {
-                    row(api.provider.name, on: true, L("已配置 · ", "Configured · ") + effective.model)
-                } else {
-                    row(api.provider.name, on: false, L("未填密钥", "No key"))
-                }
+            row(L("有道词典", "Youdao dictionary"), on: true, L("单词和短语总是先查有道", "Words and phrases always try Youdao first"), isDefault: false)
+            let firstEnabled = store.sources.first { item in item.enabled && SourcesCard.ready(item.source, store.providers, apple) }?.id
+            ForEach(store.sources) { item in
+                let ready = SourcesCard.ready(item.source, store.providers, apple)
+                row(item.source.name(store.providers), on: item.enabled && ready, item.enabled ? status(item.source) : L("已关闭", "Off"), isDefault: item.id == firstEnabled)
             }
-            row("Google", on: true, L("免费 · 非官方接口", "Free · unofficial endpoint"))
-            row(Translator.apple, on: apple == nil, apple ?? L("免费 · 本机", "Free · on this Mac"))
-            row("MyMemory", on: true, L("免费 · 每日限额", "Free · daily limit"))
         }
         .card(padding: 12)
         .task {
@@ -378,14 +371,45 @@ struct SourcesCard: View {
         }
     }
 
-    private func row(_ name: String, on: Bool, _ status: String) -> some View {
+    static func ready(_ source: Source, _ providers: [Provider], _ apple: String?) -> Bool {
+        switch source {
+        case .provider(let id): providers.first { $0.id == id }?.usable ?? false
+        case .apple: apple == nil
+        default: true
+        }
+    }
+
+    private func status(_ source: Source) -> String {
+        switch source {
+        case .provider(let id):
+            guard let provider = store.providers.first(where: { $0.id == id }), provider.usable else { return L("未填密钥", "No key") }
+            return L("已配置 · ", "Configured · ") + provider.trimmed.model
+        case .google: return L("免费 · 非官方接口", "Free · unofficial endpoint")
+        case .apple: return apple ?? L("免费 · 本机", "Free · on this Mac")
+        case .mymemory: return L("免费 · 每日限额", "Free · daily limit")
+        }
+    }
+
+    private func row(_ name: String, on: Bool, _ status: String, isDefault: Bool) -> some View {
         HStack(spacing: 8) {
             Circle().fill(on ? Color.green : Theme.border.color).frame(width: 8, height: 8)
             Text(name).lineLimit(1)
+            if isDefault { DefaultBadge() }
             Spacer(minLength: 8)
             Text(status).font(.callout).foregroundStyle(Theme.secondary.color).lineLimit(1)
         }
         .frame(height: 22)
+    }
+}
+
+struct DefaultBadge: View {
+    var body: some View {
+        Text(L("默认", "Default"))
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(Theme.onAccent.color)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 1)
+            .background(Theme.accent.color, in: Capsule())
     }
 }
 
@@ -788,7 +812,7 @@ struct ScreenshotPage: View {
 struct SettingsView: View {
     @ObservedObject var store: Store
     @State private var tab = 0
-    @FocusState private var focusedKey: Provider?
+    @FocusState private var focusedKey: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -851,41 +875,90 @@ struct SettingsView: View {
                     .padding(.leading, 16)
             }
             if let note = store.selectNote { NoteView(note: note) }
-            Toggle(L("忽略 API 密钥（测试用）", "Ignore API keys (testing)"), isOn: $store.ignoreAPIKeys)
         }
         .toggleStyle(ThemedToggleStyle())
     }
 
     private var api: some View {
         Group {
-            Text(L("短词和短语先查有道词典；有道查不到的内容和较长的文本先用 DeepSeek，失败时改用 OpenAI；两个都没有密钥时使用免费翻译。地址和模型留空时使用灰色的默认值。", "Words and short phrases use the Youdao dictionary first. Anything Youdao cannot answer and longer text uses DeepSeek, then OpenAI if DeepSeek fails; without any key, the free route is used. An empty base URL or model uses the grey default."))
-                .foregroundStyle(Theme.secondary.color)
-                .fixedSize(horizontal: false, vertical: true)
-            ForEach(store.apis.indices, id: \.self) { index in
-                let provider = store.apis[index].provider
+            orderCard
+            ForEach($store.providers) { $provider in
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(provider.name).font(.system(.headline, design: .serif))
-                    field(L("API 密钥", "Key"), SecureField("", text: $store.apis[index].key).focused($focusedKey, equals: provider).onSubmit { store.testSettings(provider) })
-                    if let note = store.apiNotes[provider] { NoteView(note: note).font(.callout) }
-                    field(L("API 地址", "Base URL"), TextField("", text: $store.apis[index].base, prompt: Text(provider.defaultBase)))
-                    field(L("模型", "Model"), TextField("", text: $store.apis[index].model, prompt: Text(provider.defaultModel)))
                     HStack {
-                        Button(L("测试", "Test")) { store.testSettings(provider) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
-                        Button(L("清除", "Clear")) { store.clearSettings(provider) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
+                        Text(provider.title).font(.system(.headline, design: .serif))
+                        Spacer()
+                        Button(L("测试", "Test")) { store.testProvider(provider.id) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
+                        Button(L("删除", "Delete")) { store.deleteProvider(provider.id) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
+                    }
+                    field(L("名称", "Name"), TextField("", text: $provider.name, prompt: Text("DeepSeek")))
+                    field(L("API 地址", "Base URL"), TextField("", text: $provider.base, prompt: Text("https://api.example.com/v1")))
+                    field(L("密钥", "Key"), SecureField("", text: $provider.key).focused($focusedKey, equals: provider.id).onSubmit { store.testProvider(provider.id) })
+                    if let note = store.apiNotes[provider.id] { NoteView(note: note).font(.callout) }
+                    field(L("模型", "Model"), TextField("", text: $provider.model, prompt: Text("model-name")))
+                    row(L("格式", "Format")) {
+                        Pills(selection: $provider.format, options: Provider.Format.allCases.map { ($0, $0.title) })
                     }
                 }
-                .padding(.top, 6)
-                .onChange(of: [store.apis[index].key, store.apis[index].base, store.apis[index].model]) { store.persist(provider) }
+                .padding(12)
+                .background(Theme.background.color, in: RoundedRectangle(cornerRadius: 10))
             }
-            Text(L("没有密钥时按顺序使用免费来源：Google（非官方接口，中国大陆可能无法访问）、Apple 翻译（需要在系统设置中下载语言包）、MyMemory（每日限额）。", "Without a key, free sources are tried in order: Google (unofficial endpoint, may be unreachable from mainland China), Apple Translation (needs the language pack in System Settings), MyMemory (daily limit)."))
+            HStack(spacing: 8) {
+                Button(L("添加 API", "Add API")) { store.addProvider(nil) }.buttonStyle(PillButtonStyle(small: true))
+                ForEach(Provider.presets, id: \.name) { preset in
+                    Button("+ " + preset.name) { store.addProvider(preset) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
+                }
+            }
+            Text(L("修改会自动保存；在密钥框按回车或离开时会测试该 API。", "Changes are saved automatically; pressing Enter in a key field, or leaving it, tests that API."))
+                .font(.caption)
+                .foregroundStyle(Theme.secondary.color)
+        }
+        .onChange(of: focusedKey) { old, _ in
+            if let old, store.providers.first(where: { $0.id == old })?.trimmed.key.isEmpty == false { store.testProvider(old) }
+        }
+    }
+
+    private var orderCard: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(L("翻译顺序", "Translation order")).font(.system(.headline, design: .serif))
+            Text(L("单词和短语总是先查有道词典；查不到的内容和句子、段落按下面的顺序尝试，第一个打开的是默认来源。拖动或用箭头调整顺序。", "Words and phrases always try the Youdao dictionary first. Anything else is tried in this order; the first enabled source is the default. Drag or use the arrows to reorder."))
                 .font(.caption)
                 .foregroundStyle(Theme.secondary.color)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(L("修改会自动保存。", "Changes are saved automatically.")).font(.caption).foregroundStyle(Theme.secondary.color)
+            let firstEnabled = store.sources.first(where: \.enabled)?.id
+            List {
+                ForEach($store.sources) { $item in
+                    let index = store.sources.firstIndex { $0.id == item.id } ?? 0
+                    HStack(spacing: 8) {
+                        Image(systemName: "line.3.horizontal").foregroundStyle(Theme.secondary.color)
+                        Text(item.source.name(store.providers)).foregroundStyle(item.enabled ? Theme.text.color : Theme.secondary.color)
+                        if item.id == firstEnabled { DefaultBadge() }
+                        Spacer()
+                        Button { store.moveSource(IndexSet(integer: index), index - 1) } label: { Image(systemName: "chevron.up") }
+                            .buttonStyle(.plain)
+                            .disabled(index == 0)
+                            .help(L("上移", "Move up"))
+                            .accessibilityLabel(L("上移", "Move up") + " " + item.source.name(store.providers))
+                        Button { store.moveSource(IndexSet(integer: index), index + 2) } label: { Image(systemName: "chevron.down") }
+                            .buttonStyle(.plain)
+                            .disabled(index == store.sources.count - 1)
+                            .help(L("下移", "Move down"))
+                            .accessibilityLabel(L("下移", "Move down") + " " + item.source.name(store.providers))
+                        Toggle("", isOn: $item.enabled).toggleStyle(ThemedToggleStyle()).labelsHidden().frame(width: 40)
+                            .accessibilityLabel(item.source.name(store.providers))
+                    }
+                    .frame(height: 26)
+                    .listRowBackground(Color.clear)
+                }
+                .onMove { store.moveSource($0, $1) }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .scrollDisabled(true)
+            .frame(height: CGFloat(store.sources.count) * 34)
+            Button(L("恢复默认顺序", "Reset order")) { store.resetOrder() }.buttonStyle(PillButtonStyle(prominent: false, small: true))
         }
-        .onChange(of: focusedKey) { old, _ in
-            if let old, store.apis.first(where: { $0.provider == old })?.trimmed.key.isEmpty == false { store.testSettings(old) }
-        }
+        .padding(12)
+        .background(Theme.background.color, in: RoundedRectangle(cornerRadius: 10))
     }
 
     private func field<Field: View>(_ title: String, _ input: Field) -> some View {

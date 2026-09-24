@@ -346,7 +346,7 @@ struct DocumentsPage: View {
                 Image(systemName: "questionmark.bubble").foregroundStyle(Theme.accent.color)
                 Text(L("问答速读", "Q&A")).font(.system(.headline, design: .serif))
             }
-            let hasAPI = !APISettings.active().isEmpty
+            let hasAPI = !Provider.active().isEmpty
             HStack(spacing: 8) {
                 TextField(L("就这份文档提问", "Ask about this document"), text: $documents.question)
                     .textFieldStyle(.plain)
@@ -358,7 +358,7 @@ struct DocumentsPage: View {
                 Button(L("提问", "Ask")) { documents.ask() }.buttonStyle(PillButtonStyle(small: true))
             }
             .disabled(!hasAPI)
-            if !hasAPI { NoteView(note: Note(text: L("问答需要在设置中填写 DeepSeek 或 OpenAI 密钥", "Q&A needs a DeepSeek or OpenAI key in Settings"))).font(.caption) }
+            if !hasAPI { NoteView(note: Note(text: L("问答需要在设置中添加带密钥的 API", "Q&A needs an API with a key in Settings"))).font(.caption) }
             if let note = documents.answerNote { NoteView(note: note).font(.caption) }
             switch documents.answer {
             case nil: EmptyView()

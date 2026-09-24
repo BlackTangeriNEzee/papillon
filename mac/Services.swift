@@ -24,14 +24,14 @@ struct Failure: LocalizedError {
 }
 
 struct Translation {
-    let route: String
+    var route: String
     let candidates: [String]
     let senses: [String]
     var fallback: String?
 }
 
 struct Translated {
-    let route: String
+    var route: String
     let text: String
     var fallback: String?
 }
@@ -59,56 +59,136 @@ struct DictEntry {
     let web: [String]
 }
 
-struct Provider: Hashable {
-    let name: String
-    let prefix: String
-    let defaultBase: String
-    let defaultModel: String
+struct Provider: Codable, Hashable, Identifiable {
+    enum Format: String, Codable, CaseIterable {
+        case openai, anthropic, gemini
 
-    static let deepseek = Provider(name: "DeepSeek", prefix: "deepseek", defaultBase: "https://api.deepseek.com/v1", defaultModel: "deepseek-chat")
-    static let openai = Provider(name: "OpenAI", prefix: "openai", defaultBase: "https://api.openai.com/v1", defaultModel: "gpt-4o-mini")
-    static let all = [deepseek, openai]
-}
-
-struct APISettings {
-    let provider: Provider
-    var base = ""
-    var key = ""
-    var model = ""
-
-    static func migrate() {
-        let defaults = UserDefaults.standard
-        let old = ["apiBase": "openaiBase", "apiKey": "openaiKey", "apiModel": "openaiModel"]
-        for (from, to) in old {
-            if let value = defaults.string(forKey: from), defaults.string(forKey: to) == nil { defaults.set(value, forKey: to) }
-            defaults.removeObject(forKey: from)
+        var title: String {
+            switch self {
+            case .openai: L("OpenAI 兼容", "OpenAI compatible")
+            case .anthropic: "Anthropic"
+            case .gemini: "Gemini"
+            }
         }
     }
 
-    static func stored(_ provider: Provider) -> APISettings {
+    var id = UUID().uuidString
+    var name = ""
+    var base = ""
+    var key = ""
+    var model = ""
+    var format = Format.openai
+
+    static let presets = [
+        Provider(name: "DeepSeek", base: "https://api.deepseek.com/v1", model: "deepseek-chat"),
+        Provider(name: "OpenAI", base: "https://api.openai.com/v1", model: "gpt-4o-mini"),
+    ]
+
+    var trimmed: Provider {
+        Provider(id: id, name: name.trimmingCharacters(in: .whitespacesAndNewlines), base: base.trimmingCharacters(in: .whitespacesAndNewlines), key: key.trimmingCharacters(in: .whitespacesAndNewlines), model: model.trimmingCharacters(in: .whitespacesAndNewlines), format: format)
+    }
+
+    var title: String { name.isEmpty ? L("未命名", "Unnamed") : name }
+    var usable: Bool { let clean = trimmed; return !clean.key.isEmpty && !clean.base.isEmpty && !clean.model.isEmpty }
+    var route: String { "\(title) · \(model)" }
+
+    static func stored() -> [Provider] {
         let defaults = UserDefaults.standard
-        return APISettings(provider: provider, base: defaults.string(forKey: provider.prefix + "Base") ?? "", key: defaults.string(forKey: provider.prefix + "Key") ?? "", model: defaults.string(forKey: provider.prefix + "Model") ?? "")
+        if let data = defaults.data(forKey: "providers"), let providers = try? JSONDecoder().decode([Provider].self, from: data) { return providers }
+        let migrated = [("deepseek", presets[0]), ("openai", presets[1])].map { prefix, preset in
+            var provider = preset
+            provider.id = UUID().uuidString
+            let legacy = prefix == "openai" ? "api" : nil
+            func value(_ suffix: String) -> String? { defaults.string(forKey: prefix + suffix).flatMap { $0.isEmpty ? nil : $0 } ?? legacy.flatMap { defaults.string(forKey: $0 + suffix) }.flatMap { $0.isEmpty ? nil : $0 } }
+            provider.key = value("Key") ?? ""
+            provider.base = value("Base") ?? preset.base
+            provider.model = value("Model") ?? preset.model
+            return (prefix, provider)
+        }
+        save(migrated.map(\.1))
+        let order = (defaults.stringArray(forKey: "sourceOrder") ?? []).map { id in migrated.first { $0.0 == id }.map { Source.provider($0.1.id).id } ?? id }
+        if defaults.stringArray(forKey: "sourceOrder") != nil { defaults.set(order, forKey: "sourceOrder") }
+        if let enabled = defaults.stringArray(forKey: "sourceEnabled") {
+            defaults.set(enabled.map { id in migrated.first { $0.0 == id }.map { Source.provider($0.1.id).id } ?? id }, forKey: "sourceEnabled")
+        }
+        for prefix in ["deepseek", "openai", "api"] {
+            for suffix in ["Key", "Base", "Model"] { defaults.removeObject(forKey: prefix + suffix) }
+        }
+        return migrated.map(\.1)
     }
 
-    static func active() -> [APISettings] {
-        UserDefaults.standard.bool(forKey: "ignoreAPIKeys") ? [] : Provider.all.compactMap { stored($0).effective }
+    static func save(_ providers: [Provider]) {
+        UserDefaults.standard.set(try? JSONEncoder().encode(providers), forKey: "providers")
     }
 
-    var trimmed: APISettings {
-        APISettings(provider: provider, base: base.trimmingCharacters(in: .whitespacesAndNewlines), key: key.trimmingCharacters(in: .whitespacesAndNewlines), model: model.trimmingCharacters(in: .whitespacesAndNewlines))
+    static func active() -> [Provider] {
+        let providers = stored()
+        return Source.chain().compactMap { source in
+            guard case .provider(let id) = source else { return nil }
+            return providers.first { $0.id == id && $0.usable }?.trimmed
+        }
+    }
+}
+
+enum Source: Hashable, Identifiable {
+    case provider(String)
+    case google, apple, mymemory
+
+    static let free: [Source] = [.google, .apple, .mymemory]
+
+    var id: String {
+        switch self {
+        case .provider(let id): "provider:" + id
+        case .google: "google"
+        case .apple: "apple"
+        case .mymemory: "mymemory"
+        }
     }
 
-    var effective: APISettings? {
-        key.isEmpty ? nil : APISettings(provider: provider, base: base.isEmpty ? provider.defaultBase : base, key: key, model: model.isEmpty ? provider.defaultModel : model)
+    init?(id: String) {
+        if id.hasPrefix("provider:") {
+            self = .provider(String(id.dropFirst("provider:".count)))
+        } else if let free = Source.free.first(where: { $0.id == id }) {
+            self = free
+        } else {
+            return nil
+        }
     }
 
-    var route: String { "\(provider.name) · \(model)" }
+    func name(_ providers: [Provider]) -> String {
+        switch self {
+        case .provider(let id): providers.first { $0.id == id }?.title ?? id
+        case .google: Translator.google
+        case .apple: Translator.apple
+        case .mymemory: Translator.myMemoryRoute
+        }
+    }
 
-    func save() {
+    static func defaultOrder(_ providers: [Provider]) -> [Source] {
+        providers.map { .provider($0.id) } + free
+    }
+
+    static func stored(_ providers: [Provider] = Provider.stored()) -> [(source: Source, enabled: Bool)] {
         let defaults = UserDefaults.standard
-        defaults.set(base, forKey: provider.prefix + "Base")
-        defaults.set(key, forKey: provider.prefix + "Key")
-        defaults.set(model, forKey: provider.prefix + "Model")
+        let valid = defaultOrder(providers)
+        let saved = (defaults.stringArray(forKey: "sourceOrder") ?? []).compactMap(Source.init(id:)).filter(valid.contains)
+        var order: [Source] = []
+        for source in saved + valid where !order.contains(source) { order.append(source) }
+        let savedIDs = Set(defaults.stringArray(forKey: "sourceOrder") ?? [])
+        let enabled = defaults.stringArray(forKey: "sourceEnabled").map(Set.init)
+        return order.map { source in
+            guard let enabled else { return (source, true) }
+            return (source, enabled.contains(source.id) || !savedIDs.contains(source.id))
+        }
+    }
+
+    static func save(_ sources: [(source: Source, enabled: Bool)]) {
+        UserDefaults.standard.set(sources.map(\.source.id), forKey: "sourceOrder")
+        UserDefaults.standard.set(sources.filter(\.enabled).map(\.source.id), forKey: "sourceEnabled")
+    }
+
+    static func chain() -> [Source] {
+        stored().filter(\.enabled).map(\.source)
     }
 }
 
@@ -238,41 +318,53 @@ enum Translator {
         }
     }
 
-    static func freeChain(_ text: String) async throws -> Translated {
-        let toEnglish = TextTools.isCJK(text)
-        let sources: [(String, @Sendable () async throws -> String)] = [
-            (google, { try await googleText(text, toEnglish: toEnglish) }),
-            (apple, { try await appleText(text, toEnglish: toEnglish) }),
-            (myMemoryRoute, { try await freeText(text, toEnglish: toEnglish) }),
-        ]
-        var errors: [String] = []
-        for (name, work) in sources {
+    static func chain<T>(api: (Provider) async throws -> T, free: (Source) async throws -> T) async throws -> (value: T, route: String, note: String?) {
+        let sources = Source.chain()
+        let providers = Provider.stored()
+        guard !sources.isEmpty else { throw Failure(L("没有启用的翻译来源，请在“设置 > API > 翻译顺序”中打开至少一个", "No translation source is enabled; turn one on in Settings > API > Translation order")) }
+        var notes: [String] = []
+        for source in sources {
             do {
-                let result = try await withTimeout(8, work)
-                let fallback = errors.isEmpty ? nil : L("已改用 \(name)", "Used \(name)") + " (" + errors.joined(separator: "; ") + ")"
-                return Translated(route: name, text: result, fallback: fallback)
+                if case .provider(let id) = source {
+                    guard let provider = providers.first(where: { $0.id == id }), provider.usable else {
+                        notes.append(source.name(providers) + L("：未填密钥，已跳过", ": no key, skipped"))
+                        continue
+                    }
+                    return (try await api(provider.trimmed), provider.route, notes.isEmpty ? nil : notes.joined(separator: "; "))
+                }
+                return (try await free(source), source.name(providers), notes.isEmpty ? nil : notes.joined(separator: "; "))
             } catch {
-                errors.append("\(name): \(error.localizedDescription)")
+                notes.append("\(source.name(providers)): \(error.localizedDescription)")
             }
         }
-        throw Failure(errors.joined(separator: "; "))
+        throw Failure(notes.joined(separator: "; "))
+    }
+
+    static func freeSource(_ source: Source, _ text: String) async throws -> String {
+        let toEnglish = TextTools.isCJK(text)
+        return try await withTimeout(8) {
+            switch source {
+            case .google: try await googleText(text, toEnglish: toEnglish)
+            case .apple: try await appleText(text, toEnglish: toEnglish)
+            default: try await freeText(text, toEnglish: toEnglish)
+            }
+        }
     }
 
     static func translator(_ toEnglish: Bool) -> String {
         "You are a professional translator. Translate the user's text into natural, idiomatic \(toEnglish ? "English" : "Simplified Chinese") that a native speaker would write, keeping the meaning, tone and register. Never translate word for word and never add explanations."
     }
 
-    static func withAPIs<T>(_ work: (APISettings) async throws -> T) async throws -> (value: T, api: APISettings, fallback: String?)? {
-        let apis = APISettings.active()
+    static func withAPIs<T>(_ work: (Provider) async throws -> T) async throws -> (value: T, api: Provider, fallback: String?)? {
+        let apis = Provider.active()
         guard !apis.isEmpty else { return nil }
         var errors: [String] = []
         for api in apis {
             do {
                 let value = try await work(api)
-                let fallback = errors.isEmpty ? nil : L("\(apis[0].provider.name) 失败，已改用 \(api.provider.name)", "\(apis[0].provider.name) failed, used \(api.provider.name)") + " (" + errors.joined(separator: "; ") + ")"
-                return (value, api, fallback)
+                return (value, api, errors.isEmpty ? nil : errors.joined(separator: "; "))
             } catch {
-                errors.append("\(api.provider.name): \(error.localizedDescription)")
+                errors.append("\(api.title): \(error.localizedDescription)")
             }
         }
         throw Failure(errors.joined(separator: "; "))
@@ -280,22 +372,25 @@ enum Translator {
 
     static func search(_ text: String, isWord: Bool) async throws -> Translation {
         let toEnglish = TextTools.isCJK(text)
-        let answered = try await withAPIs { api in
+        let answered = try await chain(api: { api in
             let sensesRule = isWord ? ", \"senses\": [up to 5 main senses of this English word, each a short, natural one-line explanation in Simplified Chinese]" : ""
             let content = try await callApi(api, system: "\(translator(toEnglish)) Reply with JSON only, no code fences, in this shape: {\"translations\": [up to 5 distinct candidate translations, ordered from the most common everyday rendering to rarer ones]\(sensesRule)}", text: text)
             guard let reply = Net.json(Data(content.replacing(TextTools.fence, with: "").utf8)) as? [String: Any], let translations = reply["translations"] as? [Any] else {
                 throw Failure(L("API 返回格式不对：", "Unexpected API reply: ") + content.prefix(300))
             }
             let senses = reply["senses"] as? [Any] ?? []
-            return Translation(route: api.route, candidates: translations.prefix(5).map { "\($0)" }, senses: senses.prefix(5).map { "\($0)" })
-        }
-        if let answered {
-            var translation = answered.value
-            translation.fallback = answered.fallback
-            return translation
-        }
-        let chained = try await freeChain(text)
-        guard chained.route == myMemoryRoute else { return Translation(route: chained.route, candidates: [chained.text], senses: [], fallback: chained.fallback) }
+            return Translation(route: "", candidates: translations.prefix(5).map { "\($0)" }, senses: senses.prefix(5).map { "\($0)" })
+        }, free: { source in
+            guard source == .mymemory else { return Translation(route: "", candidates: [try await freeSource(source, text)], senses: []) }
+            return try await withTimeout(8) { try await myMemoryCandidates(text, toEnglish: toEnglish) }
+        })
+        var translation = answered.value
+        translation.route = answered.route
+        translation.fallback = answered.note
+        return translation
+    }
+
+    static func myMemoryCandidates(_ text: String, toEnglish: Bool) async throws -> Translation {
         let reply = try await myMemory(text, toEnglish: toEnglish)
         let matches = (reply["matches"] as? [[String: Any]] ?? []).filter { TextTools.norm($0["segment"] as? String ?? "") == TextTools.norm(text) }
         var seen: Set<String> = [TextTools.norm(text)]
@@ -306,15 +401,17 @@ enum Translator {
             seen.insert(key)
             candidates.append(candidate.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        return Translation(route: myMemoryRoute, candidates: Array(candidates.prefix(5)), senses: [], fallback: chained.fallback)
+        return Translation(route: "", candidates: Array(candidates.prefix(5)), senses: [])
     }
 
     static func text(_ text: String) async throws -> Translated {
         let toEnglish = TextTools.isCJK(text)
-        if let answered = try await withAPIs({ api in try await callApi(api, system: "\(translator(toEnglish)) Keep the paragraph breaks. Reply with the translation only.", text: text) }) {
-            return Translated(route: answered.api.route, text: answered.value, fallback: answered.fallback)
-        }
-        return try await freeChain(text)
+        let answered = try await chain(api: { api in
+            try await callApi(api, system: "\(translator(toEnglish)) Keep the paragraph breaks. Reply with the translation only.", text: text)
+        }, free: { source in
+            try await freeSource(source, text)
+        })
+        return Translated(route: answered.route, text: answered.value, fallback: answered.note)
     }
 
     static func freeText(_ text: String, toEnglish: Bool) async throws -> String {
@@ -345,27 +442,51 @@ enum Translator {
         return reply
     }
 
-    static func callApi(_ api: APISettings, system: String, text: String) async throws -> String {
+    static func callApi(_ api: Provider, system: String, text: String) async throws -> String {
         var base = api.base
         while base.hasSuffix("/") { base.removeLast() }
-        guard let url = URL(string: base + "/chat/completions"), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
+        let path: String
+        switch api.format {
+        case .openai: path = "/chat/completions"
+        case .anthropic: path = "/messages"
+        case .gemini: path = "/models/\(api.model):generateContent?key=\(Net.encode(api.key))"
+        }
+        guard let url = URL(string: base + path), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
             throw Failure(L("API 地址无效：", "Invalid API base URL: ") + api.base)
         }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(api.key)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: ["model": api.model, "temperature": 0.3, "messages": [["role": "system", "content": system], ["role": "user", "content": text]]])
+        let body: [String: Any]
+        switch api.format {
+        case .openai:
+            request.setValue("Bearer \(api.key)", forHTTPHeaderField: "Authorization")
+            body = ["model": api.model, "temperature": 0.3, "messages": [["role": "system", "content": system], ["role": "user", "content": text]]]
+        case .anthropic:
+            request.setValue(api.key, forHTTPHeaderField: "x-api-key")
+            request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            body = ["model": api.model, "max_tokens": 2048, "system": system, "messages": [["role": "user", "content": text]]]
+        case .gemini:
+            body = ["systemInstruction": ["parts": [["text": system]]], "contents": [["parts": [["text": text]]]]]
+        }
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         let (data, status) = try await Net.fetch(request)
-        let body = String(decoding: data, as: UTF8.self)
+        let raw = String(decoding: data, as: UTF8.self)
         let reply = Net.json(data) as? [String: Any]
         guard (200..<300).contains(status) else {
-            let message = (reply?["error"] as? [String: Any])?["message"] as? String ?? String(body.prefix(300))
+            let error = reply?["error"]
+            let message = (error as? [String: Any])?["message"] as? String ?? (error as? String) ?? String(raw.prefix(300))
             throw Failure("HTTP \(status) \(message)")
         }
-        guard let content = ((reply?["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String else {
-            throw Failure(L("API 返回格式不对：", "Unexpected API response: ") + body.prefix(300))
+        let content: String?
+        switch api.format {
+        case .openai: content = ((reply?["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String
+        case .anthropic: content = (reply?["content"] as? [[String: Any]])?.first?["text"] as? String
+        case .gemini:
+            let candidate = (reply?["candidates"] as? [[String: Any]])?.first?["content"] as? [String: Any]
+            content = (candidate?["parts"] as? [[String: Any]])?.first?["text"] as? String
         }
+        guard let content else { throw Failure(L("API 返回格式不对：", "Unexpected API response: ") + raw.prefix(300)) }
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
