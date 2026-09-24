@@ -266,16 +266,12 @@ final class Store: ObservableObject {
         Task { ocrResult = await load { try await Translator.text(text) } }
     }
 
-    func saveSettings() {
-        apis = apis.map(\.trimmed)
-        apis.forEach { $0.save() }
-        for api in apis {
-            if let effective = api.effective {
-                testSettings(api.provider, saved: L("已保存，将使用 ", "Saved, using ") + effective.base + L("，模型 ", ", model ") + effective.model)
-            } else {
-                apiNotes[api.provider] = Note(text: L("已保存，没有密钥，不使用", "Saved without a key, not used"))
-            }
-        }
+    func persist(_ provider: Provider) {
+        guard let api = apis.first(where: { $0.provider == provider })?.trimmed else { return }
+        let stored = APISettings.stored(provider)
+        guard (api.base, api.key, api.model) != (stored.base, stored.key, stored.model) else { return }
+        api.save()
+        apiNotes[provider] = Note(text: api.key.isEmpty ? L("已保存，没有密钥，不使用", "Saved without a key, not used") : L("已保存", "Saved"))
     }
 
     func clearSettings(_ provider: Provider) {
@@ -285,12 +281,13 @@ final class Store: ObservableObject {
         apiNotes[provider] = Note(text: L("已清除", "Cleared"))
     }
 
-    func testSettings(_ provider: Provider, saved: String? = nil) {
+    func testSettings(_ provider: Provider) {
         guard let api = apis.first(where: { $0.provider == provider })?.trimmed.effective else {
             apiNotes[provider] = Note(text: L("请先填写 API 密钥", "Fill in the API key first"), isError: true)
             return
         }
-        let prefix = saved.map { $0 + "\n" } ?? ""
+        persist(provider)
+        let prefix = L("已保存。", "Saved. ")
         apiNotes[provider] = Note(text: prefix + L("测试中…", "Testing…"))
         Task {
             do {

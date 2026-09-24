@@ -94,7 +94,8 @@ Open Settings with Cmd+, from the menu bar icon, or from the sidebar; it is a pa
 - System: launch at login, show the menu bar icon, keep running when the window closes.
 - API: two OpenAI-compatible chat completions APIs, DeepSeek (default base URL `https://api.deepseek.com/v1`, model `deepseek-chat`) and OpenAI (default `https://api.openai.com/v1`, `gpt-4o-mini`).
   Each has a key, a base URL and a model; an empty base URL or model uses the default shown in grey.
-  A provider is used when its key is filled; each has its own Test and Clear buttons, and Save stores both and tests every provider that has a key.
+  A provider is used when its key is filled; each has its own Test and Clear buttons.
+  Every field is saved as soon as you change it; pressing Enter in a key field, or leaving it, tests that provider and shows the result under the key.
   Text that Youdao does not answer goes to DeepSeek first; on any error it goes to OpenAI; if both fail, both errors are shown; with no key at all, the free route is used.
   The API is asked for natural, idiomatic wording.
   Settings, including the keys, are stored in the app's preferences (`defaults read local.mini-dict`); the older single API setting is moved into the OpenAI group once.

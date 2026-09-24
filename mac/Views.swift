@@ -592,6 +592,7 @@ struct Chips: View {
 struct SettingsView: View {
     @ObservedObject var store: Store
     @State private var tab = 0
+    @FocusState private var focusedKey: Provider?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -659,18 +660,22 @@ struct SettingsView: View {
                 let provider = store.apis[index].provider
                 VStack(alignment: .leading, spacing: 8) {
                     Text(provider.name).font(.system(.headline, design: .serif))
-                    field(L("API 密钥", "Key"), SecureField("", text: $store.apis[index].key))
+                    field(L("API 密钥", "Key"), SecureField("", text: $store.apis[index].key).focused($focusedKey, equals: provider).onSubmit { store.testSettings(provider) })
+                    if let note = store.apiNotes[provider] { NoteView(note: note).font(.callout) }
                     field(L("API 地址", "Base URL"), TextField("", text: $store.apis[index].base, prompt: Text(provider.defaultBase)))
                     field(L("模型", "Model"), TextField("", text: $store.apis[index].model, prompt: Text(provider.defaultModel)))
                     HStack {
                         Button(L("测试", "Test")) { store.testSettings(provider) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
                         Button(L("清除", "Clear")) { store.clearSettings(provider) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
                     }
-                    if let note = store.apiNotes[provider] { NoteView(note: note) }
                 }
                 .padding(.top, 6)
+                .onChange(of: [store.apis[index].key, store.apis[index].base, store.apis[index].model]) { store.persist(provider) }
             }
-            Button(L("保存", "Save")) { store.saveSettings() }.buttonStyle(PillButtonStyle(small: true))
+            Text(L("修改会自动保存。", "Changes are saved automatically.")).font(.caption).foregroundStyle(Theme.secondary.color)
+        }
+        .onChange(of: focusedKey) { old, _ in
+            if let old, store.apis.first(where: { $0.provider == old })?.trimmed.key.isEmpty == false { store.testSettings(old) }
         }
     }
 
