@@ -62,8 +62,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         quick.onSearch = { [weak self] in self?.store.addHistory($0) }
         quick.onBrief = { [weak self] in self?.store.setBrief($0, $1) }
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 360, height: 420)
-        popover.contentViewController = NSHostingController(rootView: QuickView(store: store, search: quick) { [weak self] in self?.openQuickInMain() })
+        popover.contentSize = NSSize(width: QuickView.width, height: 120)
+        popover.animates = true
+        let quickHost = NSHostingController(rootView: QuickView(store: store, search: quick, openMain: { [weak self] in self?.openQuickInMain() }) { [weak self] height in
+            guard let self, height > 0, abs(self.popover.contentSize.height - height) > 0.5 else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.15
+                self.popover.contentSize = NSSize(width: QuickView.width, height: height)
+            }
+        })
+        quickHost.sizingOptions = []
+        popover.contentViewController = quickHost
         setUpMenus()
         setUpStatusItem()
         setUpWindows()

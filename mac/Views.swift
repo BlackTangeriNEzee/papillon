@@ -417,6 +417,8 @@ struct DefaultBadge: View {
 struct SearchInput: View {
     @ObservedObject var store: Store
     @ObservedObject var search: Search
+    var placeholder = L("输入单词、短语或段落，回车翻译，Shift+回车换行", "Type a word, phrase or paragraph. Enter translates, Shift+Enter adds a line")
+    var onDropdown: (CGFloat) -> Void = { _ in }
     let submit: () -> Void
     @State private var cardHeight: CGFloat = 0
     private static let rowHeight: CGFloat = 26
@@ -445,7 +447,7 @@ struct SearchInput: View {
         })
             .overlay(alignment: .topLeading) {
                 if search.query.isEmpty {
-                    Text(L("输入单词、短语或段落，回车翻译，Shift+回车换行", "Type a word, phrase or paragraph. Enter translates, Shift+Enter adds a line"))
+                    Text(placeholder)
                         .foregroundStyle(Theme.secondary.color)
                         .lineLimit(1)
                         .padding(.horizontal, 15)
@@ -471,7 +473,12 @@ struct SearchInput: View {
             .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Theme.border.color))
             .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { cardHeight = $0 })
             .overlay(alignment: .topLeading) {
-                if search.historyOpen && !matches.isEmpty { dropdown.offset(y: cardHeight + 6) }
+                if search.historyOpen && !matches.isEmpty {
+                    dropdown
+                        .offset(y: cardHeight + 6)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { onDropdown(cardHeight + 6 + $0) })
+                        .onDisappear { onDropdown(0) }
+                }
             }
             .zIndex(1)
     }
@@ -535,17 +542,33 @@ struct HistoryRowStyle: ButtonStyle {
 
 struct QuickView: View {
     @ObservedObject var store: Store
-    let search: Search
+    @ObservedObject var search: Search
     let openMain: () -> Void
+    let resize: (CGFloat) -> Void
+    static let width: CGFloat = 360
+    static let maxHeight: CGFloat = 560
+    @State private var resultHeight: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+    @State private var dropdownHeight: CGFloat = 0
+    @State private var inputHeight: CGFloat = 0
+    @State private var linkHeight: CGFloat = 20
+
+    private var hasResult: Bool { search.lookup != nil || search.note != nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SearchInput(store: store, search: search) { search.run(search.query) }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
-                    LookupPage(store: store, search: search)
+            SearchInput(store: store, search: search, placeholder: L("输入要翻译的内容", "Type to translate"), onDropdown: { dropdownHeight = $0; report() }) { search.run(search.query) }
+                .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { inputHeight = $0 })
+            if hasResult {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 10) {
+                        LookupPage(store: store, search: search)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { resultHeight = $0 })
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(height: max(60, min(resultHeight, QuickView.maxHeight - 28 - inputHeight - 24 - linkHeight)))
             }
             Button(action: openMain) {
                 Label(L("在主窗口打开", "Open in main window"), systemImage: "arrow.up.forward.app")
@@ -553,10 +576,18 @@ struct QuickView: View {
                     .foregroundStyle(Theme.accent.color)
             }
             .buttonStyle(.plain)
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { linkHeight = $0 })
         }
         .padding(14)
-        .frame(width: 360, height: 420)
+        .frame(width: QuickView.width, alignment: .top)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { contentHeight = $0; report() })
+        .frame(maxHeight: .infinity, alignment: .top)
         .themed()
+    }
+
+    private func report() {
+        resize(min(max(contentHeight, dropdownHeight + 28), QuickView.maxHeight))
     }
 }
 
