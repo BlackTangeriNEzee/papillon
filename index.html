@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini Dict</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.min.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+<main>
+  <header>
+    <h1>迷你词典 Mini Dict</h1>
+    <div class="tools">
+      <button id="toggle-ocr" type="button" aria-expanded="false" aria-controls="ocr-panel" aria-label="截图翻译 Screenshot translation">截图<span class="en">OCR</span></button>
+      <button id="toggle-lists" type="button" aria-expanded="false" aria-controls="lists-panel" aria-label="历史和收藏 History and favourites">历史<span class="en">History</span></button>
+      <button id="open-settings" type="button" aria-label="设置 Settings" title="设置 Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    </div>
+  </header>
+
+  <section id="ocr-panel" class="panel" hidden>
+    <h2>截图翻译 Screenshot translation</h2>
+    <label id="drop-zone">
+      <span>按 Cmd/Ctrl+V 粘贴截图、拖入图片，或选择文件<br>Paste a screenshot, drop an image, or choose a file</span>
+      <input id="file" type="file" accept="image/*">
+    </label>
+    <img id="preview" alt="截图预览 Screenshot preview" hidden>
+    <p id="ocr-status" class="status" role="status"></p>
+    <textarea id="ocr-text" rows="6" placeholder="识别出的文字 Recognised text"></textarea>
+    <button id="ocr-translate" type="button" class="primary">翻译 Translate</button>
+    <div id="ocr-result"></div>
+  </section>
+
+  <section id="lists-panel" class="panel" hidden>
+    <h2>历史 History <button id="clear-history" type="button" class="small">清空历史 Clear history</button></h2>
+    <ul id="history" class="chips"></ul>
+    <h2>收藏 Favourites</h2>
+    <ul id="favourites" class="chips"></ul>
+  </section>
+
+  <form id="search-form">
+    <input id="query" type="search" placeholder="输入单词或短语 Enter a word or phrase" autocomplete="off" aria-label="查询 Query">
+    <button type="submit" class="primary">搜索 Search</button>
+  </form>
+  <p id="status" class="status" role="status"></p>
+  <div id="result"></div>
+</main>
+
+<div id="popup" hidden>
+  <p id="popup-text"></p>
+  <div class="row">
+    <button id="popup-translate" type="button" class="small primary">翻译 Translate</button>
+    <button id="popup-search" type="button" class="small link">查词 Look up</button>
+  </div>
+  <div id="popup-result"></div>
+</div>
+
+<dialog id="settings">
+  <form method="dialog">
+    <h2>设置 Settings</h2>
+    <p class="hint">三项都填写时使用这个 API（OpenAI 兼容格式），否则使用免费翻译。<br>When all three are filled, this OpenAI-compatible API is used; otherwise the free route.</p>
+    <label>API 地址 Base URL <input id="api-base" type="url" placeholder="https://api.openai.com/v1"></label>
+    <label>API 密钥 Key <input id="api-key" type="password" autocomplete="off"></label>
+    <label>模型 Model <input id="api-model" placeholder="gpt-4o-mini"></label>
+    <p id="settings-status" class="status" role="status"></p>
+    <div class="row">
+      <button id="save-settings" type="button" class="primary">保存 Save</button>
+      <button id="clear-settings" type="button">清除 Clear</button>
+      <button type="submit">关闭 Close</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>
