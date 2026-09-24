@@ -191,14 +191,20 @@ final class Store: ObservableObject {
     @Published var ocrText = ""
     @Published var ocrNote: Note?
     @Published var ocrResult: Load<Translated>?
-    @Published var providers = Provider.stored() {
+    @Published var providerError: String? = Provider.load().error
+    @Published var providers = Provider.load().providers {
         didSet {
-            Provider.save(providers)
+            guard providerError == nil else { return }
+            backupNote = Provider.save(providers).map { Note(text: $0, isError: true) }
             if providers.map(\.id) != oldValue.map(\.id) { sources = SourceItem.load(providers) }
         }
     }
-    @Published var sources = SourceItem.load(Provider.stored()) {
-        didSet { Source.save(sources.map { ($0.source, $0.enabled) }) }
+    @Published var backupNote: Note?
+    @Published var sources = SourceItem.load(Provider.load().providers) {
+        didSet {
+            guard providerError == nil else { return }
+            Source.save(sources.map { ($0.source, $0.enabled) })
+        }
     }
     @Published var apiNotes: [String: Note] = [:]
     @Published var uiLanguage = UILanguage(rawValue: UserDefaults.standard.string(forKey: "uiLanguage") ?? "") ?? .system {
@@ -338,6 +344,18 @@ final class Store: ObservableObject {
         }
         ocrResult = .loading
         Task { ocrResult = await load { try await Translator.text(text) } }
+    }
+
+    func restoreProviders() {
+        do {
+            let restored = try Provider.restoreBackup()
+            providerError = nil
+            providers = restored
+            sources = SourceItem.load(restored)
+            backupNote = Note(text: L("已从备份恢复 \(restored.count) 个 API", "Restored \(restored.count) APIs from the backup"))
+        } catch {
+            backupNote = Note(text: error.localizedDescription, isError: true)
+        }
     }
 
     func addProvider(_ preset: Provider?) {

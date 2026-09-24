@@ -93,8 +93,32 @@ struct Provider: Codable, Hashable, Identifiable {
     var route: String { "\(title) · \(model)" }
 
     static func stored() -> [Provider] {
+        load().providers
+    }
+
+    static func decode(_ value: Any) throws -> [Provider] {
+        let data: Data
+        switch value {
+        case let bytes as Data: data = bytes
+        case let text as String: data = Data(text.utf8)
+        default: throw Failure(L("类型不对：", "unexpected type: ") + String(describing: type(of: value)))
+        }
+        do {
+            return try JSONDecoder().decode([Provider].self, from: data)
+        } catch {
+            throw Failure(error.localizedDescription)
+        }
+    }
+
+    static func load() -> (providers: [Provider], error: String?) {
         let defaults = UserDefaults.standard
-        if let data = defaults.data(forKey: "providers"), let providers = try? JSONDecoder().decode([Provider].self, from: data) { return providers }
+        if let value = defaults.object(forKey: "providers") {
+            do {
+                return (try decode(value), nil)
+            } catch {
+                return ([], L("API 设置无法读取，已保留原值：", "Provider settings could not be read, the stored value was left untouched: ") + error.localizedDescription)
+            }
+        }
         let migrated = [("deepseek", presets[0]), ("openai", presets[1])].map { prefix, preset in
             var provider = preset
             provider.id = UUID().uuidString
@@ -114,11 +138,36 @@ struct Provider: Codable, Hashable, Identifiable {
         for prefix in ["deepseek", "openai", "api"] {
             for suffix in ["Key", "Base", "Model"] { defaults.removeObject(forKey: prefix + suffix) }
         }
-        return migrated.map(\.1)
+        return (migrated.map(\.1), nil)
     }
 
-    static func save(_ providers: [Provider]) {
-        UserDefaults.standard.set(try? JSONEncoder().encode(providers), forKey: "providers")
+    static var backupURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/ZhaocaiDict/providers-backup.json")
+    }
+
+    @discardableResult
+    static func save(_ providers: [Provider]) -> String? {
+        guard let data = try? JSONEncoder().encode(providers) else { return L("API 设置无法保存", "Provider settings could not be saved") }
+        UserDefaults.standard.set(data, forKey: "providers")
+        let manager = FileManager.default
+        do {
+            try manager.createDirectory(at: backupURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try data.write(to: backupURL, options: .atomic)
+            try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupURL.path)
+            return nil
+        } catch {
+            return L("API 设置已保存，但备份失败：", "Provider settings were saved, but the backup failed: ") + error.localizedDescription
+        }
+    }
+
+    static func restoreBackup() throws -> [Provider] {
+        let data: Data
+        do {
+            data = try Data(contentsOf: backupURL)
+        } catch {
+            throw Failure(L("找不到备份：", "No backup found: ") + backupURL.path)
+        }
+        return try decode(data)
     }
 
     static func active() -> [Provider] {

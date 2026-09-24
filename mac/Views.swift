@@ -353,6 +353,7 @@ struct SourcesCard: View {
                 Image(systemName: "point.3.connected.trianglepath.dotted").foregroundStyle(Theme.accent.color)
                 Text(L("翻译来源", "Sources")).font(.system(.headline, design: .serif))
             }
+            if let error = store.providerError { NoteView(note: Note(text: error, isError: true)).font(.callout) }
             row(L("有道词典", "Youdao dictionary"), on: true, L("单词和短语总是先查有道", "Words and phrases always try Youdao first"), isDefault: false)
             let firstEnabled = store.sources.first { item in item.enabled && SourcesCard.ready(item.source, store.providers, apple) }?.id
             ForEach(store.sources) { item in
@@ -881,6 +882,8 @@ struct SettingsView: View {
 
     private var api: some View {
         Group {
+            if let error = store.providerError { NoteView(note: Note(text: error, isError: true)) }
+            if let note = store.backupNote { NoteView(note: note).font(.callout) }
             orderCard
             ForEach($store.providers) { $provider in
                 VStack(alignment: .leading, spacing: 8) {
@@ -903,10 +906,11 @@ struct SettingsView: View {
                 .background(Theme.background.color, in: RoundedRectangle(cornerRadius: 10))
             }
             HStack(spacing: 8) {
-                Button(L("添加 API", "Add API")) { store.addProvider(nil) }.buttonStyle(PillButtonStyle(small: true))
+                Button(L("添加 API", "Add API")) { store.addProvider(nil) }.buttonStyle(PillButtonStyle(small: true)).disabled(store.providerError != nil)
                 ForEach(Provider.presets, id: \.name) { preset in
-                    Button("+ " + preset.name) { store.addProvider(preset) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
+                    Button("+ " + preset.name) { store.addProvider(preset) }.buttonStyle(PillButtonStyle(prominent: false, small: true)).disabled(store.providerError != nil)
                 }
+                Button(L("从备份恢复", "Restore from backup")) { store.restoreProviders() }.buttonStyle(PillButtonStyle(prominent: false, small: true))
             }
             Text(L("修改会自动保存；在密钥框按回车或离开时会测试该 API。", "Changes are saved automatically; pressing Enter in a key field, or leaving it, tests that API."))
                 .font(.caption)
