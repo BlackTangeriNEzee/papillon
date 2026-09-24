@@ -4,7 +4,7 @@ A small English-Chinese dictionary web app in plain HTML, CSS and JavaScript, wi
 
 Type a word or phrase to get up to 5 candidate translations.
 Chinese input is translated to English, anything else to Simplified Chinese.
-Single English words also show phonetics, audio, definitions, examples and synonyms.
+Single English words also show up to 5 definitions per part of speech with examples, plus phonetics and audio when available.
 Select any word or short phrase on the page to translate it in a small popup.
 History and favourites are kept in the browser's `localStorage`.
 
@@ -35,5 +35,6 @@ Some providers do not allow calls from a web page (CORS), in which case the brow
 ## Data sources
 
 - Free translation: MyMemory, https://api.mymemory.translated.net (free, no key, 500 characters per request and a daily limit).
-- Dictionary entries: Free Dictionary API, https://dictionaryapi.dev.
+- Definitions and examples: Wiktionary REST API, https://en.wiktionary.org/api/rest_v1/page/definition/.
+- Phonetics and audio: Free Dictionary API, https://dictionaryapi.dev (6 second timeout; when it fails, the definitions still show).
 - OCR: Tesseract.js, https://github.com/naptha/tesseract.js.

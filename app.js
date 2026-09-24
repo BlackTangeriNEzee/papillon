@@ -99,11 +99,45 @@ async function translateText(text) {
   return { route: '免费 Free', text: results.join('\n') };
 }
 
-async function lookup(word) {
-  const res = await request(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`);
+const settle = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
+const plain = (html) => new DOMParser().parseFromString(html, 'text/html').body.textContent.replace(/\s+/g, ' ').trim();
+
+async function fetchDefinitions(word) {
+  const res = await request(`https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`);
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const groups = new Map();
+  for (const entry of (await res.json()).en || []) {
+    const definitions = entry.definitions
+      .map((d) => ({ text: plain(d.definition), example: d.examples?.length ? plain(d.examples[0]) : '' }))
+      .filter((d) => d.text);
+    if (definitions.length) groups.set(entry.partOfSpeech, [...(groups.get(entry.partOfSpeech) || []), definitions]);
+  }
+  if (!groups.size) return null;
+  return [...groups].map(([partOfSpeech, lists]) => {
+    const definitions = [];
+    for (let i = 0; definitions.length < 5 && lists.some((list) => i < list.length); i++) {
+      for (const list of lists) if (list[i] && definitions.length < 5) definitions.push(list[i]);
+    }
+    return { partOfSpeech, definitions };
+  });
+}
+
+async function fetchPhonetic(word) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(new Error('超时 timed out after 6 s')), 6000);
+  try {
+    const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const entries = await res.json();
+    const phonetics = entries.flatMap((entry) => entry.phonetics || []);
+    return {
+      ipa: entries.find((entry) => entry.phonetic)?.phonetic || phonetics.find((p) => p.text)?.text,
+      audio: phonetics.find((p) => p.audio)?.audio,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function search(raw) {
@@ -115,79 +149,72 @@ async function search(raw) {
   addHistory(text);
   setStatus($('status'), '查询中 Searching…');
   const isWord = /^[a-z][a-z'-]*$/i.test(text);
-  const dictionary = isWord ? lookup(text).then((value) => ({ value }), (error) => ({ error })) : null;
+  const definitions = isWord ? settle(fetchDefinitions(text)) : null;
+  const phonetic = isWord ? settle(fetchPhonetic(text)) : null;
   const [translation] = await Promise.allSettled([translateSearch(text, isWord)]);
   if (id !== searchId) return;
   setStatus($('status'), '');
-  const node = renderResult(text, translation, isWord);
+  const node = renderResult(text, translation);
   $('result').replaceChildren(node);
-  if (!dictionary) return;
+  if (!isWord) return;
+  phonetic.then(({ value, error }) => {
+    if (id !== searchId) return;
+    const line = error ? el('p', 'note', `音标暂不可用 Phonetic unavailable (${error.message})`) : renderPhonetic(value);
+    if (line) node.querySelector('.result-head').after(line);
+  });
   const pending = el('p', 'note', '词典加载中 Loading dictionary…');
   node.append(pending);
-  const { value, error } = await dictionary;
+  const { value, error } = await definitions;
   if (id !== searchId) return;
   if (error) return pending.replaceWith(el('p', 'note', `词典暂不可用 Dictionary entry unavailable (${error.message})`));
   if (!value) return pending.replaceWith(el('p', 'error', '词典中未找到该词 Word not found in dictionary'));
-  node.querySelector('.result-head').after(...renderPhonetic(value));
+  if (!node.querySelector('h3')) pending.before(el('h3', '', '释义 Senses'));
   pending.replaceWith(...renderMeanings(value));
 }
 
-function renderResult(text, translation, isWord) {
+function renderResult(text, translation) {
   const node = el('div');
   const head = el('div', 'result-head');
   head.append(el('span', 'word', text));
   if (translation.status === 'fulfilled') head.append(el('span', 'route', translation.value.route));
   head.append(starButton(text));
   node.append(head);
-  if (translation.status === 'rejected') node.append(el('p', 'error', translation.reason.message));
-  else if (!translation.value.candidates.length) node.append(el('p', 'error', '未找到翻译 No translation found'));
+  if (translation.status === 'rejected') {
+    node.append(el('p', 'error', translation.reason.message));
+    return node;
+  }
+  const { candidates, senses } = translation.value;
+  if (!candidates.length) node.append(el('p', 'error', '未找到翻译 No translation found'));
   else {
     const list = el('ol', 'candidates');
-    list.append(...translation.value.candidates.map((candidate) => el('li', '', candidate)));
+    list.append(...candidates.map((candidate) => el('li', '', candidate)));
     node.append(list);
   }
-  if (!isWord) return node;
-  node.append(el('h3', '', '释义 Senses'));
-  const senses = translation.status === 'fulfilled' ? translation.value.senses : [];
   if (senses.length) {
     const list = el('ol', 'senses');
     list.append(...senses.map((sense) => el('li', '', sense)));
-    node.append(list);
+    node.append(el('h3', '', '释义 Senses'), list);
   }
   return node;
 }
 
-function renderPhonetic(entries) {
-  const phonetics = entries.flatMap((entry) => entry.phonetics || []);
-  const ipa = entries.find((entry) => entry.phonetic)?.phonetic || phonetics.find((p) => p.text)?.text;
-  const audio = phonetics.find((p) => p.audio)?.audio;
-  if (!ipa && !audio) return [];
+function renderPhonetic({ ipa, audio }) {
+  if (!ipa && !audio) return null;
   const line = el('div', 'phonetic', ipa || '');
   if (audio) line.append(button('发音 Play', () => new Audio(audio).play().catch((error) => setStatus($('status'), `播放失败 Audio failed: ${error.message}`, true))));
-  return [line];
+  return line;
 }
 
-function renderMeanings(entries) {
-  const groups = new Map();
-  for (const meaning of entries.flatMap((entry) => entry.meanings || [])) {
-    const group = groups.get(meaning.partOfSpeech) || { definitions: [], synonyms: [] };
-    group.definitions.push(...meaning.definitions);
-    group.synonyms.push(...(meaning.synonyms || []), ...meaning.definitions.flatMap((d) => d.synonyms || []));
-    groups.set(meaning.partOfSpeech, group);
-  }
-  const nodes = [];
-  for (const [partOfSpeech, group] of groups) {
+function renderMeanings(groups) {
+  return groups.flatMap(({ partOfSpeech, definitions }) => {
     const list = el('ol');
-    for (const definition of group.definitions.slice(0, 5)) {
-      const item = el('li', '', definition.definition);
+    for (const definition of definitions) {
+      const item = el('li', '', definition.text);
       if (definition.example) item.append(el('div', 'example', `例 e.g. ${definition.example}`));
       list.append(item);
     }
-    nodes.push(el('p', 'pos', partOfSpeech), list);
-    const synonyms = [...new Set(group.synonyms)].slice(0, 5);
-    if (synonyms.length) nodes.push(el('p', 'synonyms', `近义词 Synonyms: ${synonyms.join(', ')}`));
-  }
-  return nodes;
+    return [el('p', 'pos', partOfSpeech), list];
+  });
 }
 
 function starButton(text) {
