@@ -130,74 +130,122 @@ struct InputView: NSViewRepresentable {
     }
 }
 
+struct SidebarMaterial: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let view = NSVisualEffectView()
+        view.material = .sidebar
+        view.blendingMode = .behindWindow
+        view.state = .followsWindowActiveState
+        return view
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
 struct MainView: View {
     @ObservedObject var store: Store
+    @State private var compact = false
 
-    private static let sections: [(page: Page, icon: String)] = [(.lookup, "character.book.closed"), (.screenshot, "camera.viewfinder"), (.favourites, "star"), (.settings, "gearshape")]
+    private static let sections: [(page: Page, icon: String)] = [(.lookup, "character.book.closed"), (.screenshot, "camera.viewfinder"), (.settings, "gearshape")]
 
     static func title(_ page: Page) -> String {
         switch page {
         case .lookup: L("查词", "Lookup")
         case .screenshot: L("截图翻译", "Screenshot")
-        case .favourites: L("收藏", "Favourites")
         case .settings: L("设置", "Settings")
         }
     }
 
     var body: some View {
-        NavigationSplitView {
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(MainView.sections, id: \.page) { section in
-                    let selected = store.page == section.page
-                    Button { store.page = section.page } label: {
-                        Label(MainView.title(section.page), systemImage: section.icon)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .foregroundStyle(selected ? Theme.onAccent.color : Theme.text.color)
-                            .background(selected ? Theme.accent.color : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                            .contentShape(RoundedRectangle(cornerRadius: 8))
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityAddTraits(selected ? .isSelected : [])
-                }
-                Spacer()
-            }
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .navigationSplitViewColumnWidth(200)
-            .toolbar(removing: .sidebarToggle)
-        } detail: {
+        HStack(spacing: 0) {
+            sidebar
+                .frame(width: compact ? 52 : 190)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(SidebarMaterial().ignoresSafeArea())
+            Rectangle().fill(Theme.border.color).frame(width: 1).ignoresSafeArea()
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .background(Theme.background.color)
+                .background(Theme.background.color.ignoresSafeArea())
         }
-        .frame(minWidth: 700, minHeight: 480)
+        .frame(minWidth: 520, minHeight: 348)
+        .onGeometryChange(for: Bool.self, of: { $0.size.width < 640 }, action: { compact = $0 })
         .themed(background: false)
+    }
+
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if !compact {
+                Text("Mini Dict").font(.caption.weight(.semibold)).foregroundStyle(Theme.secondary.color).padding(.horizontal, 8).padding(.bottom, 4)
+            }
+            ForEach(MainView.sections, id: \.page) { section in
+                let selected = store.page == section.page
+                Button { store.page = section.page } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: section.icon).frame(width: 18)
+                        if !compact { Text(MainView.title(section.page)).lineLimit(1) }
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: compact ? .center : .leading)
+                    .padding(.horizontal, compact ? 0 : 8)
+                    .foregroundStyle(selected ? Theme.onAccent.color : Theme.text.color)
+                    .background(selected ? Theme.accent.color : Color.clear, in: RoundedRectangle(cornerRadius: 7))
+                    .contentShape(RoundedRectangle(cornerRadius: 7))
+                }
+                .buttonStyle(.plain)
+                .help(MainView.title(section.page))
+                .accessibilityLabel(MainView.title(section.page))
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+            if !compact {
+                Text(L("收藏", "Favourites")).font(.caption.weight(.semibold)).foregroundStyle(Theme.secondary.color).padding(.horizontal, 8).padding(.top, 14).padding(.bottom, 4)
+                if store.favourites.isEmpty {
+                    Text(L("点结果旁的星标收藏", "Star a result to keep it here")).font(.caption).foregroundStyle(Theme.secondary.color).padding(.horizontal, 8)
+                }
+                ScrollView {
+                    VStack(spacing: 0) {
+                        ForEach(store.favourites.prefix(20), id: \.self) { item in
+                            Button { store.search(item) } label: {
+                                HStack(spacing: 8) {
+                                    Image(systemName: "star.fill").font(.caption).foregroundStyle(Theme.accent.color).frame(width: 18)
+                                    Text(item.replacingOccurrences(of: "\n", with: " ")).lineLimit(1)
+                                    Spacer(minLength: 0)
+                                }
+                                .padding(.horizontal, 8)
+                                .frame(height: 26)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(HistoryRowStyle())
+                            .help(item)
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.top, 10)
     }
 
     @ViewBuilder
     private var detail: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text(MainView.title(store.page)).font(.system(.title, design: .serif))
+        VStack(alignment: .leading, spacing: 12) {
             if store.page == .lookup {
                 SearchInput(store: store, search: store.main) { store.search(store.main.query) }
+            } else {
+                Text(MainView.title(store.page)).font(.system(.title2, design: .serif))
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     switch store.page {
                     case .lookup: LookupContent(store: store, search: store.main)
                     case .screenshot: ScreenshotPage(store: store)
-                    case .favourites: FavouritesPage(store: store)
                     case .settings: SettingsView(store: store)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 20)
+                .padding(.bottom, 16)
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.top, 12)
+        .padding(.horizontal, 16)
+        .padding(.top, 10)
     }
 }
 
@@ -218,13 +266,36 @@ struct StartBlock: View {
             .font(.caption)
             .foregroundStyle(Theme.secondary.color)
             .padding(.horizontal, 4)
-        if !store.favourites.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(L("收藏", "Favourites")).font(.caption).foregroundStyle(Theme.secondary.color)
-                Chips(store: store, items: Array(store.favourites.prefix(10)))
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
+            FeatureCard(icon: "camera.viewfinder", title: L("截图翻译", "Screenshot"), text: L("框选屏幕上的文字，译文贴在原处", "Select text on screen, the translation is pinned in place")) {
+                Button(L("开始", "Start")) { store.takeScreenshot() }.buttonStyle(PillButtonStyle(small: true))
             }
-            .card()
+            FeatureCard(icon: "text.cursor", title: L("划词", "Select to translate"), text: L("在任何应用里选中文字即可翻译", "Select text in any app to translate it")) {
+                Toggle("", isOn: Binding(get: { store.selectTranslate }, set: { store.setSelectTranslate($0) })).toggleStyle(ThemedToggleStyle()).labelsHidden()
+            }
         }
+        if let note = store.selectNote { NoteView(note: note) }
+    }
+}
+
+struct FeatureCard<Action: View>: View {
+    let icon: String
+    let title: String
+    let text: String
+    @ViewBuilder let action: () -> Action
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: icon).foregroundStyle(Theme.accent.color)
+                Text(title).font(.system(.headline, design: .serif)).lineLimit(1)
+            }
+            Text(text).font(.caption).foregroundStyle(Theme.secondary.color).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+            action()
+        }
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
+        .card(padding: 12)
     }
 }
 
@@ -244,7 +315,9 @@ struct SearchInput: View {
     }
 
     var body: some View {
-        InputView(text: $search.query, focusRequest: search.focusRequest, onSubmit: submit, onFocus: { focused in
+        HStack(alignment: .top, spacing: 0) {
+            Image(systemName: "magnifyingglass").foregroundStyle(Theme.secondary.color).padding(.leading, 12).padding(.top, 12)
+            InputView(text: $search.query, focusRequest: search.focusRequest, onSubmit: submit, onFocus: { focused in
             search.historyOpen = focused && search.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }, onEdit: {
             search.historyOpen = true
@@ -255,29 +328,30 @@ struct SearchInput: View {
             search.historyOpen = false
             return true
         })
-            .padding(.bottom, 34)
             .overlay(alignment: .topLeading) {
                 if search.query.isEmpty {
                     Text(L("输入单词、短语或段落，回车翻译，Shift+回车换行", "Type a word, phrase or paragraph. Enter translates, Shift+Enter adds a line"))
                         .foregroundStyle(Theme.secondary.color)
+                        .lineLimit(1)
                         .padding(.horizontal, 15)
                         .padding(.vertical, 10)
                         .allowsHitTesting(false)
                 }
             }
-            .overlay(alignment: .bottomTrailing) {
-                Button(action: submit) {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(Theme.onAccent.color)
-                        .frame(width: 28, height: 28)
-                        .background(Theme.accent.color, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .help(L("翻译", "Translate"))
-                .accessibilityLabel(L("翻译", "Translate"))
-                .padding(10)
+            Button(action: submit) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.onAccent.color)
+                    .frame(width: 28, height: 28)
+                    .background(Theme.accent.color, in: Circle())
             }
+            .buttonStyle(.plain)
+            .help(L("翻译", "Translate"))
+            .accessibilityLabel(L("翻译", "Translate"))
+            .padding(8)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+        }
+            .fixedSize(horizontal: false, vertical: true)
             .background(Theme.surface.color, in: RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Theme.border.color))
             .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { cardHeight = $0 })
@@ -295,8 +369,9 @@ struct SearchInput: View {
                         Button { search.run(item) } label: {
                             HStack(spacing: 8) {
                                 Image(systemName: "clock").font(.caption).foregroundStyle(Theme.secondary.color)
-                                Text(item.replacingOccurrences(of: "\n", with: " ")).lineLimit(1).truncationMode(.tail)
-                                Spacer(minLength: 0)
+                                Text(item.replacingOccurrences(of: "\n", with: " ")).lineLimit(1).truncationMode(.tail).layoutPriority(1)
+                                Spacer(minLength: 8)
+                                Text(store.briefs[item] ?? "").font(.callout).foregroundStyle(Theme.secondary.color).lineLimit(1)
                             }
                             .padding(.horizontal, 12)
                             .frame(height: SearchInput.rowHeight)
@@ -373,15 +448,19 @@ struct QuickView: View {
 struct LookupPage: View {
     @ObservedObject var store: Store
     @ObservedObject var search: Search
+    var compact = false
 
     var body: some View {
         if let note = search.note { NoteView(note: note) }
         if let lookup = search.lookup {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if lookup.kind != .paragraph { Text(lookup.text).font(.system(size: 30, weight: .semibold, design: .serif)).textSelection(.enabled) }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if lookup.kind != .paragraph {
+                        Text(lookup.text).font(.system(size: compact ? 20 : 26, weight: .semibold, design: .serif)).lineLimit(2).textSelection(.enabled)
+                    }
+                    if case .done(let entry?) = lookup.entry { Phonetics(search: search, word: lookup.text, entry: entry) }
+                    Spacer(minLength: 4)
                     if case .done(.some) = lookup.entry { RouteTag(route: L("有道", "Youdao")) }
-                    Spacer()
                     let on = store.favourites.contains(lookup.text)
                     Button { store.toggleFavourite(lookup.text) } label: {
                         Image(systemName: on ? "star.fill" : "star").foregroundStyle(on ? Theme.accent.color : Theme.secondary.color)
@@ -390,11 +469,75 @@ struct LookupPage: View {
                     .help(on ? L("取消收藏", "Remove favourite") : L("收藏", "Add favourite"))
                 }
                 if let translation = lookup.translation { TranslationView(store: store, lookup: lookup, translation: translation) }
-                if let entry = lookup.entry { EntryView(search: search, word: lookup.text, entry: entry) }
+                if let entry = lookup.entry { EntryView(entry: entry) }
             }
-            .card()
-            if lookup.kind == .word { EnglishDefinitions(meanings: lookup.meanings) }
+            .card(padding: 12)
+            if lookup.kind == .word && !compact { EnglishDefinitions(meanings: lookup.meanings) }
         }
+    }
+}
+
+struct Phonetics: View {
+    let search: Search
+    let word: String
+    let entry: DictEntry
+
+    var body: some View {
+        HStack(spacing: 10) {
+            if let uk = entry.uk { phone(L("英", "UK"), uk, american: false) }
+            if let us = entry.us { phone(L("美", "US"), us, american: true) }
+            if let pinyin = entry.pinyin { Text("[\(pinyin)]").foregroundStyle(Theme.secondary.color).textSelection(.enabled) }
+        }
+        .font(.callout)
+        .lineLimit(1)
+    }
+
+    private func phone(_ region: String, _ ipa: String, american: Bool) -> some View {
+        HStack(spacing: 3) {
+            Text(region).foregroundStyle(Theme.secondary.color)
+            Text("[\(ipa)]").textSelection(.enabled)
+            Button { search.play(Youdao.audio(word, american: american)) } label: {
+                Image(systemName: "speaker.wave.2.fill").foregroundStyle(Theme.accent.color)
+            }
+            .buttonStyle(.plain)
+            .help(L("发音", "Play"))
+            .accessibilityLabel(region + " " + L("发音", "Play"))
+        }
+    }
+}
+
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(proposal.width ?? .infinity, subviews)
+        return CGSize(width: rows.map(\.width).max() ?? 0, height: rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(rows.count - 1, 0)))
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in arrange(bounds.width, subviews) {
+            var x = bounds.minX
+            for index in row.indices {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
+                x += size.width + spacing
+            }
+            y += row.height + spacing
+        }
+    }
+
+    private func arrange(_ width: CGFloat, _ subviews: Subviews) -> [(indices: [Int], width: CGFloat, height: CGFloat)] {
+        var rows: [(indices: [Int], width: CGFloat, height: CGFloat)] = []
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.unspecified)
+            if let last = rows.last, last.width + spacing + size.width <= width {
+                rows[rows.count - 1] = (last.indices + [index], last.width + spacing + size.width, max(last.height, size.height))
+            } else {
+                rows.append(([index], size.width, size.height))
+            }
+        }
+        return rows
     }
 }
 
@@ -429,8 +572,6 @@ struct TranslationView: View {
 }
 
 struct EntryView: View {
-    let search: Search
-    let word: String
     let entry: Load<DictEntry?>
 
     var body: some View {
@@ -439,41 +580,32 @@ struct EntryView: View {
         case .failed(let message): NoteView(note: Note(text: L("词典数据暂不可用", "Dictionary data unavailable") + " (\(message))", isError: true))
         case .done(nil): EmptyView()
         case .done(let entry?):
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 14) {
-                    if let uk = entry.uk { phone(L("英", "UK"), uk, american: false) }
-                    if let us = entry.us { phone(L("美", "US"), us, american: true) }
-                    if let pinyin = entry.pinyin { Text("[\(pinyin)]").foregroundStyle(Theme.secondary.color).textSelection(.enabled) }
-                }
-                Text(L("简明释义", "Concise senses")).font(.caption).foregroundStyle(Theme.secondary.color)
+            VStack(alignment: .leading, spacing: 5) {
                 ForEach(entry.senses, id: \.self) { sense in
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         if !sense.label.isEmpty {
-                            Text(sense.label).font(.callout.weight(.semibold)).foregroundStyle(Theme.accent.color).frame(minWidth: 34, alignment: .leading)
+                            Text(sense.label).font(.callout.weight(.semibold)).foregroundStyle(Theme.accent.color).frame(minWidth: 30, alignment: .leading)
                         }
-                        Text(sense.text).lineSpacing(3).textSelection(.enabled)
+                        Text(sense.text).lineSpacing(2).textSelection(.enabled)
                     }
                 }
                 if !entry.web.isEmpty {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(L("网络释义", "Web")).font(.caption).foregroundStyle(Theme.secondary.color)
-                        Text(entry.web.joined(separator: "；")).font(.callout).foregroundStyle(Theme.secondary.color).textSelection(.enabled)
+                        Text(L("网络", "Web")).font(.caption).foregroundStyle(Theme.secondary.color).frame(minWidth: 30, alignment: .leading)
+                        FlowLayout {
+                            ForEach(entry.web, id: \.self) { value in
+                                Text(value)
+                                    .font(.caption)
+                                    .padding(.horizontal, 7)
+                                    .padding(.vertical, 2)
+                                    .background(Theme.accent.color.opacity(0.1), in: Capsule())
+                                    .textSelection(.enabled)
+                            }
+                        }
                     }
+                    .padding(.top, 2)
                 }
             }
-        }
-    }
-
-    private func phone(_ region: String, _ ipa: String, american: Bool) -> some View {
-        HStack(spacing: 4) {
-            Text(region).font(.callout).foregroundStyle(Theme.secondary.color)
-            Text("[\(ipa)]").textSelection(.enabled)
-            Button { search.play(Youdao.audio(word, american: american)) } label: {
-                Image(systemName: "speaker.wave.2.fill").foregroundStyle(Theme.accent.color)
-            }
-            .buttonStyle(.plain)
-            .help(L("发音", "Play"))
-            .accessibilityLabel(region + " " + L("发音", "Play"))
         }
     }
 }
@@ -560,35 +692,6 @@ struct ScreenshotPage: View {
     }
 }
 
-struct FavouritesPage: View {
-    @ObservedObject var store: Store
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(L("点结果旁的星标收藏", "Star a result to add it here")).font(.caption).foregroundStyle(Theme.secondary.color)
-            Chips(store: store, items: store.favourites)
-        }
-        .card()
-    }
-}
-
-struct Chips: View {
-    let store: Store
-    let items: [String]
-
-    var body: some View {
-        if items.isEmpty {
-            Text(L("暂无", "None yet")).foregroundStyle(Theme.secondary.color)
-        } else {
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), alignment: .leading)], alignment: .leading, spacing: 8) {
-                ForEach(items, id: \.self) { item in
-                    Button(item) { store.search(item) }.buttonStyle(PillButtonStyle(prominent: false, small: true)).help(item)
-                }
-            }
-        }
-    }
-}
-
 struct SettingsView: View {
     @ObservedObject var store: Store
     @State private var tab = 0
@@ -647,6 +750,14 @@ struct SettingsView: View {
             Toggle(L("显示菜单栏图标", "Show menu bar icon"), isOn: $store.showStatusItem)
             Toggle(L("关闭窗口时保持运行", "Keep running when the window closes"), isOn: $store.keepRunning)
             if let note = store.systemNote { NoteView(note: note) }
+            Toggle(L("划词翻译", "Select to translate"), isOn: Binding(get: { store.selectTranslate }, set: { store.setSelectTranslate($0) }))
+            if store.selectTranslate {
+                Pills(selection: $store.selectAuto, options: [(false, L("先显示图标", "Show an icon first")), (true, L("自动显示", "Show automatically"))])
+                    .padding(.leading, 16)
+                Toggle(L("剪贴板回退（读不到选中文字时模拟 Cmd+C）", "Clipboard fallback (simulate Cmd+C when the selection cannot be read)"), isOn: $store.clipboardFallback)
+                    .padding(.leading, 16)
+            }
+            if let note = store.selectNote { NoteView(note: note) }
         }
         .toggleStyle(ThemedToggleStyle())
     }

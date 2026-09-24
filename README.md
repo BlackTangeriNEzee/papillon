@@ -19,11 +19,12 @@ The certificate is self-signed, so the first time Gatekeeper may block the app: 
 
 ## Using it
 
-The window has a sidebar with 查词 Lookup, 截图翻译 Screenshot, 收藏 Favourites and 设置 Settings.
+The window has a sidebar with 查词 Lookup, 截图翻译 Screenshot and 设置 Settings, followed by your favourites (click one to look it up).
+Below 640 points wide the sidebar shows icons only; the window can be as small as 520 x 380.
 On the Lookup page, type a word, phrase or paragraph and press Enter (or click the round arrow button).
 Shift+Enter adds a new line.
-Before a search, the page shows the three shortcuts and up to 10 favourites.
-When the input is focused and empty, a list of the last 10 lookups drops down under it; typing filters the list, clicking a row searches it again, "清空 Clear" empties the history, and Esc or a click elsewhere hides it.
+Before a search, the page shows the three shortcuts and cards to start screenshot translation or turn on select to translate.
+When the input is focused and empty, a list of the last 10 lookups drops down under it, each with a short meaning remembered from its last lookup; typing filters the list, clicking a row searches it again, "清空 Clear" empties the history, and Esc or a click elsewhere hides it.
 Deleting all the text clears the result at once.
 
 How a lookup is answered:
@@ -38,6 +39,15 @@ Every result shows which source answered: "Youdao", "DeepSeek · model", "OpenAI
 When DeepSeek fails and OpenAI answers instead, a small note says why.
 
 Closing the window keeps the app running (this can be changed in Settings); click the Dock icon or press Option+Space to bring it back.
+
+## Select to translate
+
+Turn on "划词翻译 Select to translate" in Settings > System (or on the Lookup page).
+It needs Accessibility permission: macOS asks the first time; turn on Mini Dict in System Settings > Privacy & Security > Accessibility.
+When you select text in another app, a small button appears next to the selection (or, with "自动显示 Show automatically", the translation right away); clicking it shows a small panel under the selection with the same result as the Lookup page and a link to open it in the main window.
+Clicking elsewhere, selecting something else, or Esc hides the panel; pinned screenshots still take Esc first.
+Apps that do not expose the selected text to Accessibility (some browsers and PDF viewers) work only with "剪贴板回退 Clipboard fallback" on, which copies the selection with Cmd+C and puts your clipboard back afterwards.
+Selections inside Mini Dict are ignored.
 
 ## Menu bar
 

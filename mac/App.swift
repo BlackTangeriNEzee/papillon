@@ -17,6 +17,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let quick = Search()
     private let popover = NSPopover()
     private let screenTranslator = ScreenTranslator()
+    private lazy var selectTranslator = SelectTranslator(store: store)
+    private var screenBusy = false
+    private var selectVisible = false
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let statusMenu = NSMenu()
     private let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 600), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
@@ -39,8 +42,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         store.onStatusItemChanged = { [weak self] in self?.statusItem.isVisible = $0 }
         store.registerShortcuts = { [weak self] in self?.registerHotKeys() ?? [] }
         store.unregisterShortcuts = { [weak self] in self?.unregisterHotKeys() }
-        screenTranslator.onEscapeNeeded = { [weak self] in self?.setEscapeHotKey($0) }
+        screenTranslator.onEscapeNeeded = { [weak self] in
+            self?.screenBusy = $0
+            self?.updateEscape()
+        }
+        selectTranslator.onVisibleChanged = { [weak self] in
+            self?.selectVisible = $0
+            self?.updateEscape()
+        }
+        selectTranslator.openMain = { [weak self] text in
+            self?.store.search(text)
+            self?.showWindow()
+        }
+        store.onSelectChanged = { [weak self] in self?.selectTranslator.apply() }
+        selectTranslator.apply()
         quick.onSearch = { [weak self] in self?.store.addHistory($0) }
+        quick.onBrief = { [weak self] in self?.store.setBrief($0, $1) }
         popover.behavior = .transient
         popover.contentSize = NSSize(width: 360, height: 420)
         popover.contentViewController = NSHostingController(rootView: QuickView(store: store, search: quick) { [weak self] in self?.openQuickInMain() })
@@ -183,7 +200,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.backgroundColor = Theme.background.ns
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
-        window.contentMinSize = NSSize(width: 700, height: 480)
+        window.contentMinSize = NSSize(width: 520, height: 348)
+        host.sizingOptions = [.minSize]
         window.contentView = host
         window.isReleasedWhenClosed = false
         window.delegate = self
@@ -224,6 +242,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return errors
     }
 
+    private func updateEscape() {
+        setEscapeHotKey(screenBusy || selectVisible)
+    }
+
     private func setEscapeHotKey(_ on: Bool) {
         if let escapeHotKey { UnregisterEventHotKey(escapeHotKey) }
         escapeHotKey = nil
@@ -236,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func hotKeyPressed(_ id: UInt32) {
         switch id {
         case 100:
-            screenTranslator.escape()
+            if screenBusy { screenTranslator.escape() } else { selectTranslator.hide() }
         case 1:
             if NSApp.isActive && window.isKeyWindow {
                 NSApp.hide(nil)

@@ -1,10 +1,11 @@
 import AVFoundation
 import AppKit
+import ApplicationServices
 import Carbon.HIToolbox
 import ServiceManagement
 
 enum Page: Hashable, CaseIterable {
-    case lookup, screenshot, favourites, settings
+    case lookup, screenshot, settings
 }
 
 enum Load<Value> {
@@ -94,6 +95,7 @@ final class Search: ObservableObject {
     @Published var focusRequest = 0
     @Published var historyOpen = false
     var onSearch: (String) -> Void = { _ in }
+    var onBrief: (String, String) -> Void = { _, _ in }
     private var player: AVPlayer?
     private var playerStatus: NSKeyValueObservation?
 
@@ -118,10 +120,14 @@ final class Search: ObservableObject {
                 let entry = await load { try await WordSources.withLowercase(text, Youdao.lookup) }
                 guard lookup?.id == current.id else { return }
                 lookup?.entry = entry
-                if case .done(.some) = entry { return }
+                if case .done(let found?) = entry {
+                    if let sense = found.senses.first { onBrief(text, [sense.label, sense.text].filter { !$0.isEmpty }.joined(separator: " ")) }
+                    return
+                }
                 lookup?.translation = .loading
                 let result = await load { try await Translator.search(text, isWord: kind == .word) }
                 if lookup?.id == current.id { lookup?.translation = result }
+                if case .done(let translation) = result, let first = translation.candidates.first { onBrief(text, first) }
             }
         } else {
             Task {
@@ -133,6 +139,7 @@ final class Search: ObservableObject {
                     return try await Translator.search(text, isWord: false)
                 }
                 if lookup?.id == current.id { lookup?.translation = result }
+                if case .done(let translation) = result, let first = translation.candidates.first { onBrief(text, first) }
             }
         }
         guard kind == .word else { return }
@@ -200,6 +207,23 @@ final class Store: ObservableObject {
     @Published var keepRunning = flag("keepRunning") {
         didSet { UserDefaults.standard.set(keepRunning, forKey: "keepRunning") }
     }
+    @Published var briefs = UserDefaults.standard.dictionary(forKey: "briefs") as? [String: String] ?? [:] {
+        didSet { UserDefaults.standard.set(briefs, forKey: "briefs") }
+    }
+    @Published var selectTranslate = UserDefaults.standard.bool(forKey: "selectTranslate") {
+        didSet {
+            UserDefaults.standard.set(selectTranslate, forKey: "selectTranslate")
+            onSelectChanged()
+        }
+    }
+    @Published var selectAuto = UserDefaults.standard.bool(forKey: "selectAuto") {
+        didSet { UserDefaults.standard.set(selectAuto, forKey: "selectAuto") }
+    }
+    @Published var clipboardFallback = UserDefaults.standard.bool(forKey: "clipboardFallback") {
+        didSet { UserDefaults.standard.set(clipboardFallback, forKey: "clipboardFallback") }
+    }
+    @Published var selectNote: Note?
+    var onSelectChanged: () -> Void = {}
     var takeScreenshot: () -> Void = {}
     var openSettings: () -> Void = {}
     var onLanguageChanged: () -> Void = {}
@@ -212,6 +236,22 @@ final class Store: ObservableObject {
 
     init() {
         main.onSearch = { [unowned self] in addHistory($0) }
+        main.onBrief = { [unowned self] in setBrief($0, $1) }
+    }
+
+    func setBrief(_ text: String, _ brief: String) {
+        let keep = Set(history + favourites + [text])
+        var updated = briefs.filter { keep.contains($0.key) }
+        updated[text] = String(brief.prefix(80))
+        briefs = updated
+    }
+
+    func setSelectTranslate(_ on: Bool) {
+        selectNote = nil
+        if on && !AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) {
+            selectNote = Note(text: L("没有辅助功能权限：请在“系统设置 > 隐私与安全性 > 辅助功能”中打开 Mini Dict，划词翻译才能读取选中的文字", "Accessibility permission is missing: turn on Mini Dict in System Settings > Privacy & Security > Accessibility so Select to translate can read the selected text"), isError: true)
+        }
+        selectTranslate = on
     }
 
     func search(_ raw: String) {

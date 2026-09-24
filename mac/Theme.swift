@@ -73,7 +73,7 @@ struct Pills<Value: Hashable>: View {
 }
 
 extension View {
-    func card(radius: CGFloat = 12, padding: CGFloat = 14) -> some View {
+    func card(radius: CGFloat = 12, padding: CGFloat = 12) -> some View {
         self
             .padding(padding)
             .frame(maxWidth: .infinity, alignment: .leading)
