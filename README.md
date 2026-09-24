@@ -7,12 +7,15 @@ Chinese input is translated to English; anything else is translated to Simplifie
 ## Build
 
 ```sh
+sh mac/make-cert.sh
 sh mac/build.sh
 ```
 
-The script needs only the Xcode Command Line Tools (`swiftc`).
+Run `sh mac/make-cert.sh` once per Mac: it creates a self-signed code signing certificate named "Mini Dict Signing" in your login keychain, and does nothing if it already exists.
+After that, `sh mac/build.sh` is all you need; it stops with a message if the certificate is missing.
+The scripts need only the Xcode Command Line Tools (`swiftc`).
 The app lands in `build/MiniDict.app`; open it with `open build/MiniDict.app` or copy it to `/Applications`.
-The app is ad-hoc signed, so the first time Gatekeeper may block it: right-click the app, choose Open, then confirm.
+The certificate is self-signed, so the first time Gatekeeper may block the app: right-click the app, choose Open, then confirm.
 
 ## Using it
 
@@ -36,7 +39,7 @@ The menu bar icon's right-click menu has Open, Screenshot translate, Settings an
 The shortcuts can be changed in Settings > Shortcuts, and Reset restores these defaults.
 They work without Accessibility permission.
 The first time the screenshot shortcut runs, macOS asks for Screen Recording permission for Mini Dict; turn it on in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app.
-Because the app is ad-hoc signed, macOS treats every new build as a new app, so after rebuilding you may need to turn the permission off and on again.
+Because every build is signed with the same certificate, the Screen Recording permission survives rebuilds.
 You can also paste an image with Cmd+V or drop an image onto the window to read its text.
 
 ## Services menu

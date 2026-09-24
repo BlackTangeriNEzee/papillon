@@ -2,6 +2,10 @@
 set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 app="$root/build/MiniDict.app"
+if ! security find-identity -v -p codesigning | grep -q '"Mini Dict Signing"'; then
+  echo "Signing identity \"Mini Dict Signing\" not found. Run: sh mac/make-cert.sh" >&2
+  exit 1
+fi
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 swiftc -O -parse-as-library -target arm64-apple-macos14.0 "$root"/mac/*.swift -o "$app/Contents/MacOS/MiniDict"
@@ -32,6 +36,6 @@ cat > "$app/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-codesign -s - --force --deep "$app"
+codesign -s "Mini Dict Signing" --force --timestamp=none "$app"
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$app"
 echo "$app"
