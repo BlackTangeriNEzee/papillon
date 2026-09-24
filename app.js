@@ -102,6 +102,11 @@ async function translateText(text) {
 const settle = (promise) => promise.then((value) => ({ value }), (error) => ({ error }));
 const plain = (html) => new DOMParser().parseFromString(html, 'text/html').body.textContent.replace(/\s+/g, ' ').trim();
 
+async function withLowercase(lookup, word) {
+  const result = await lookup(word);
+  return result || word === word.toLowerCase() ? result : lookup(word.toLowerCase());
+}
+
 async function fetchDefinitions(word) {
   const res = await request(`https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`);
   if (res.status === 404) return null;
@@ -128,6 +133,7 @@ async function fetchPhonetic(word) {
   const timer = setTimeout(() => controller.abort(new Error('超时 timed out after 6 s')), 6000);
   try {
     const res = await fetch(`https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`, { signal: controller.signal });
+    if (res.status === 404) return null;
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const entries = await res.json();
     const phonetics = entries.flatMap((entry) => entry.phonetics || []);
@@ -149,8 +155,8 @@ async function search(raw) {
   addHistory(text);
   setStatus($('status'), '查询中 Searching…');
   const isWord = /^[a-z][a-z'-]*$/i.test(text);
-  const definitions = isWord ? settle(fetchDefinitions(text)) : null;
-  const phonetic = isWord ? settle(fetchPhonetic(text)) : null;
+  const definitions = isWord ? settle(withLowercase(fetchDefinitions, text)) : null;
+  const phonetic = isWord ? settle(withLowercase(fetchPhonetic, text)) : null;
   const [translation] = await Promise.allSettled([translateSearch(text, isWord)]);
   if (id !== searchId) return;
   setStatus($('status'), '');
@@ -159,7 +165,7 @@ async function search(raw) {
   if (!isWord) return;
   phonetic.then(({ value, error }) => {
     if (id !== searchId) return;
-    const line = error ? el('p', 'note', `音标暂不可用 Phonetic unavailable (${error.message})`) : renderPhonetic(value);
+    const line = error || !value ? el('p', 'note', `音标暂不可用 Phonetic unavailable (${error ? error.message : '未找到 not found'})`) : renderPhonetic(value);
     if (line) node.querySelector('.result-head').after(line);
   });
   const pending = el('p', 'note', '词典加载中 Loading dictionary…');
