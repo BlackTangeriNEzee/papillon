@@ -7,7 +7,7 @@ guard let photo = NSImage(contentsOf: root.appendingPathComponent("mac/icon-sour
     exit(1)
 }
 let appCrop = photo.cropping(to: CGRect(x: 470, y: 20, width: 800, height: 800))!
-let faceCrop = photo.cropping(to: CGRect(x: 620, y: 230, width: 420, height: 420))!
+let faceCrop = photo.cropping(to: CGRect(x: 655, y: 255, width: 340, height: 340))!
 
 func squircle(_ rect: CGRect) -> CGPath {
     let path = CGMutablePath()
@@ -45,15 +45,14 @@ func appIcon(_ context: CGContext, _ side: CGFloat) {
 }
 
 func statusIcon(_ context: CGContext, _ side: CGFloat) {
-    let line = side / 18
-    let circle = CGRect(x: 0, y: 0, width: side, height: side).insetBy(dx: line / 2, dy: line / 2)
+    let circle = CGRect(x: 0, y: 0, width: side, height: side).insetBy(dx: 0.5, dy: 0.5)
     context.saveGState()
     context.addEllipse(in: circle)
     context.clip()
     context.draw(faceCrop, in: CGRect(x: 0, y: 0, width: side, height: side))
     context.restoreGState()
-    context.setStrokeColor(CGColor(srgbRed: 0.35, green: 0.22, blue: 0.12, alpha: 0.85))
-    context.setLineWidth(line)
+    context.setStrokeColor(CGColor(gray: 0, alpha: 0.2))
+    context.setLineWidth(1)
     context.strokeEllipse(in: circle)
 }
 
@@ -62,8 +61,8 @@ try? FileManager.default.createDirectory(at: iconset, withIntermediateDirectorie
 for (name, size) in [("16x16", 16), ("16x16@2x", 32), ("32x32", 32), ("32x32@2x", 64), ("128x128", 128), ("128x128@2x", 256), ("256x256", 256), ("256x256@2x", 512), ("512x512", 512), ("512x512@2x", 1024)] {
     try render(size, draw: appIcon).write(to: iconset.appendingPathComponent("icon_\(name).png"))
 }
-try render(18, draw: statusIcon).write(to: output.appendingPathComponent("StatusIcon.png"))
-try render(36, draw: statusIcon).write(to: output.appendingPathComponent("StatusIcon@2x.png"))
+try render(22, draw: statusIcon).write(to: output.appendingPathComponent("StatusIcon.png"))
+try render(44, draw: statusIcon).write(to: output.appendingPathComponent("StatusIcon@2x.png"))
 let iconutil = Process()
 iconutil.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
 iconutil.arguments = ["-c", "icns", iconset.path, "-o", output.appendingPathComponent("AppIcon.icns").path]

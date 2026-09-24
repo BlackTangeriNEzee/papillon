@@ -149,8 +149,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusItem.isVisible = store.showStatusItem
         guard let button = statusItem.button else { return }
         if let photo = Bundle.main.image(forResource: "StatusIcon") {
-            photo.size = NSSize(width: 18, height: 18)
+            photo.size = NSSize(width: 22, height: 22)
             button.image = photo
+            button.imageScaling = .scaleNone
+            statusItem.length = 30
         } else if let image = NSImage(systemSymbolName: "character.book.closed", accessibilityDescription: "Mini Dict") {
             image.isTemplate = true
             button.image = image
