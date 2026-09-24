@@ -77,12 +77,64 @@ func flag(_ key: String) -> Bool {
 }
 
 @MainActor
-final class Store: ObservableObject {
-    @Published var page = Page.lookup
+final class Search: ObservableObject {
     @Published var query = ""
     @Published var note: Note?
     @Published var lookup: Lookup?
     @Published var focusRequest = 0
+    var onSearch: (String) -> Void = { _ in }
+    private var player: AVPlayer?
+    private var playerStatus: NSKeyValueObservation?
+
+    func run(_ raw: String) {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        query = text
+        guard !text.isEmpty else {
+            lookup = nil
+            note = Note(text: L("请输入要翻译的内容", "Please enter a word, phrase or paragraph"), isError: true)
+            return
+        }
+        note = nil
+        onSearch(text)
+        let kind = TextTools.kind(text)
+        let current = Lookup(text: text, kind: kind)
+        lookup = current
+        Task {
+            let result = await load {
+                if kind == .paragraph {
+                    let translated = try await Translator.text(text)
+                    return Translation(route: translated.route, candidates: [translated.text], senses: [])
+                }
+                return try await Translator.search(text, isWord: kind == .word)
+            }
+            if lookup?.id == current.id { lookup?.translation = result }
+        }
+        guard kind == .word else { return }
+        Task {
+            let result = await load { try await WordSources.withLowercase(text, WordSources.phonetic) }
+            if lookup?.id == current.id { lookup?.phonetic = result }
+        }
+        Task {
+            let result = await load { try await WordSources.withLowercase(text, WordSources.meanings) }
+            if lookup?.id == current.id { lookup?.meanings = result }
+        }
+    }
+
+    func play(_ url: URL) {
+        let item = AVPlayerItem(url: url)
+        playerStatus = item.observe(\.status) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            let message = item.error?.localizedDescription ?? "unknown error"
+            DispatchQueue.main.async { self?.note = Note(text: L("播放失败：", "Audio failed: ") + message, isError: true) }
+        }
+        player = AVPlayer(playerItem: item)
+        player?.play()
+    }
+}
+
+@MainActor
+final class Store: ObservableObject {
+    @Published var page = Page.lookup
     @Published var history = UserDefaults.standard.stringArray(forKey: "history") ?? [] {
         didSet { UserDefaults.standard.set(history, forKey: "history") }
     }
@@ -123,59 +175,25 @@ final class Store: ObservableObject {
     var onStatusItemChanged: (Bool) -> Void = { _ in }
     var registerShortcuts: () -> [String] = { [] }
     var unregisterShortcuts: () -> Void = {}
+    let main = Search()
     private var ocrId = 0
-    private var player: AVPlayer?
-    private var playerStatus: NSKeyValueObservation?
     private var recorder: Any?
 
+    init() {
+        main.onSearch = { [unowned self] in addHistory($0) }
+    }
+
     func search(_ raw: String) {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        query = text
         page = .lookup
-        guard !text.isEmpty else {
-            lookup = nil
-            note = Note(text: L("请输入要翻译的内容", "Please enter a word, phrase or paragraph"), isError: true)
-            return
-        }
-        note = nil
+        main.run(raw)
+    }
+
+    func addHistory(_ text: String) {
         history = Array(([text] + history.filter { $0 != text }).prefix(20))
-        let kind = TextTools.kind(text)
-        let current = Lookup(text: text, kind: kind)
-        lookup = current
-        Task {
-            let result = await load {
-                if kind == .paragraph {
-                    let translated = try await Translator.text(text)
-                    return Translation(route: translated.route, candidates: [translated.text], senses: [])
-                }
-                return try await Translator.search(text, isWord: kind == .word)
-            }
-            if lookup?.id == current.id { lookup?.translation = result }
-        }
-        guard kind == .word else { return }
-        Task {
-            let result = await load { try await WordSources.withLowercase(text, WordSources.phonetic) }
-            if lookup?.id == current.id { lookup?.phonetic = result }
-        }
-        Task {
-            let result = await load { try await WordSources.withLowercase(text, WordSources.meanings) }
-            if lookup?.id == current.id { lookup?.meanings = result }
-        }
     }
 
     func toggleFavourite(_ text: String) {
         favourites = favourites.contains(text) ? favourites.filter { $0 != text } : [text] + favourites
-    }
-
-    func play(_ url: URL) {
-        let item = AVPlayerItem(url: url)
-        playerStatus = item.observe(\.status) { [weak self] item, _ in
-            guard item.status == .failed else { return }
-            let message = item.error?.localizedDescription ?? "unknown error"
-            DispatchQueue.main.async { self?.note = Note(text: L("播放失败：", "Audio failed: ") + message, isError: true) }
-        }
-        player = AVPlayer(playerItem: item)
-        player?.play()
     }
 
     func showOcrError(_ message: String) {

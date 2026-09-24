@@ -294,16 +294,30 @@ enum WordSources {
     }
 }
 
+struct TextLine {
+    let text: String
+    let box: CGRect
+}
+
 enum OCR {
-    static func recognize(_ image: CGImage) async throws -> String {
+    static func lines(_ image: CGImage) async throws -> [TextLine] {
         try await Task.detached(priority: .userInitiated) {
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.recognitionLanguages = ["en-US", "zh-Hans"]
             request.usesLanguageCorrection = true
             try VNImageRequestHandler(cgImage: image).perform([request])
-            let lines = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }
-            return lines.joined(separator: "\n").replacingOccurrences(of: "([\\u3400-\\u9fff])[ \\t]+(?=[\\u3400-\\u9fff])", with: "$1", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+            return (request.results ?? []).compactMap { observation in
+                observation.topCandidates(1).first.map { TextLine(text: $0.string, box: observation.boundingBox) }
+            }
         }.value
+    }
+
+    static func join(_ texts: [String], separator: String = "\n") -> String {
+        texts.joined(separator: separator).replacingOccurrences(of: "([\\u3400-\\u9fff])[ \\t]+(?=[\\u3400-\\u9fff])", with: "$1", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func recognize(_ image: CGImage) async throws -> String {
+        join(try await lines(image).map(\.text))
     }
 }

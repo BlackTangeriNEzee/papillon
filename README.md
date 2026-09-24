@@ -27,20 +27,46 @@ Anything longer is translated as a whole paragraph, keeping line breaks.
 Every result shows which route was used: "Free" or "API".
 
 The History tab keeps the last 20 lookups and your favourites (the star next to a result).
-Closing the window keeps the app running (this can be changed in Settings); click the Dock icon or the menu bar icon to bring it back.
-The menu bar icon's right-click menu has Open, Screenshot translate, Settings and Quit.
+Closing the window keeps the app running (this can be changed in Settings); click the Dock icon or press Option+Space to bring it back.
+
+## Menu bar
+
+Left-click the menu bar icon to open a small quick-translate popover under it.
+Type in the box and press Enter (Shift+Enter adds a new line); the result appears in the popover with the same routing as the main window: a word shows candidate translations and up to 5 definitions per part of speech, a phrase shows candidate translations, and a paragraph shows its translation.
+"在主窗口打开 Open in main window" opens the main window with the same text searched.
+Click outside the popover, press Esc, or click the icon again to close it.
+Right-click the menu bar icon for the menu with Open, Screenshot translate, Settings and Quit.
 
 ## Global shortcuts
 
 - Option+Space: show the window and focus the input; press again to hide it.
-- Option+Shift+S: screenshot translation. Select a region; the text is read on your Mac with the Vision framework (English and Simplified Chinese), shown in an editable box, and translated with the Translate button.
+- Option+Shift+S: screenshot translation (also in the menu bar icon's right-click menu). See "Screenshot translation" below.
 - Option+D: translate the text on the clipboard. Select text in any app, press Cmd+C, then Option+D.
 
 The shortcuts can be changed in Settings > Shortcuts, and Reset restores these defaults.
 They work without Accessibility permission.
-The first time the screenshot shortcut runs, macOS asks for Screen Recording permission for Mini Dict; turn it on in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app.
+A shortcut only works in one app at a time: if another app uses the same combination, change one of them.
+For example, Easydict's screenshot OCR shortcut is also Option+Shift+S by default; while both apps use it, the other app's selector can take the first drag.
+
+## Screenshot translation
+
+Press Option+Shift+S: the screen dims and the pointer becomes a crosshair.
+Drag a rectangle over the text; the rectangle has an accent border, corner handles and a badge with its size in pixels.
+Esc, or a click without dragging, cancels.
+When you release the mouse, the region is captured with ScreenCaptureKit at the screen's full resolution and pinned on the screen exactly where it was, with an accent border.
+The text is read on your Mac with the Vision framework (English and Simplified Chinese).
+Lines that belong together are joined into blocks, each block is translated (up to 3 at a time), and the translation is drawn over the original text in the same place, on the colour of the original background.
+Until a block's translation arrives, the original stays visible; a block that fails shows its error in red.
+Hover over the pinned screenshot for a small toolbar: copy all translations in reading order, switch between the translation and the original screenshot, or close it.
+Several screenshots can be pinned at the same time, and you can drag them around.
+While at least one screenshot is pinned, Esc closes all of them at once, whichever app is in front; that Esc press does nothing else.
+When nothing is pinned, Esc works as usual again.
+
+The first time, macOS asks for Screen Recording permission for Mini Dict; turn it on in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app.
+Until then, a pinned message explains this instead of capturing.
 Because every build is signed with the same certificate, the Screen Recording permission survives rebuilds.
-You can also paste an image with Cmd+V or drop an image onto the window to read its text.
+
+The main window's Screenshot tab is for images you already have: paste an image with Cmd+V or drop one onto the window, edit the recognised text, and translate it.
 
 ## Services menu
 

@@ -14,11 +14,15 @@ final class DropHostingView<Content: View>: NSHostingView<Content> {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let store = Store()
+    private let quick = Search()
+    private let popover = NSPopover()
+    private let screenTranslator = ScreenTranslator()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let statusMenu = NSMenu()
     private let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 640), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
     private let settingsWindow = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
     private var hotKeys: [EventHotKeyRef] = []
+    private var escapeHotKey: EventHotKeyRef?
 
     static func main() {
         let app = NSApplication.shared
@@ -35,6 +39,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         store.onStatusItemChanged = { [weak self] in self?.statusItem.isVisible = $0 }
         store.registerShortcuts = { [weak self] in self?.registerHotKeys() ?? [] }
         store.unregisterShortcuts = { [weak self] in self?.unregisterHotKeys() }
+        screenTranslator.onEscapeNeeded = { [weak self] in self?.setEscapeHotKey($0) }
+        quick.onSearch = { [weak self] in self?.store.addHistory($0) }
+        popover.behavior = .transient
+        popover.contentSize = NSSize(width: 360, height: 420)
+        popover.contentViewController = NSHostingController(rootView: QuickView(store: store, search: quick) { [weak self] in self?.openQuickInMain() })
         setUpMenus()
         setUpStatusItem()
         setUpWindows()
@@ -133,9 +142,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             statusItem.menu = statusMenu
             statusItem.button?.performClick(nil)
             statusItem.menu = nil
-        } else {
-            showWindow()
+        } else if popover.isShown {
+            popover.performClose(nil)
+        } else if let button = statusItem.button {
+            if NSApp.isHidden {
+                [window, settingsWindow].forEach { $0.orderOut(nil) }
+                NSApp.unhide(nil)
+            }
+            if let front = NSWorkspace.shared.frontmostApplication, front != .current {
+                NSRunningApplication.current.activate(from: front)
+            }
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
+            quick.focusRequest += 1
         }
+    }
+
+    private func openQuickInMain() {
+        popover.performClose(nil)
+        store.search(quick.query)
+        showWindow()
     }
 
     private func setUpWindows() {
@@ -151,6 +177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return true
         }
         window.title = "Mini Dict"
+        for themed in [window, settingsWindow] {
+            themed.backgroundColor = Theme.background.ns
+            themed.titlebarAppearsTransparent = true
+        }
         window.contentView = host
         window.isReleasedWhenClosed = false
         if !window.setFrameUsingName("MainWindow") { window.center() }
@@ -195,8 +225,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return errors
     }
 
+    private func setEscapeHotKey(_ on: Bool) {
+        if let escapeHotKey { UnregisterEventHotKey(escapeHotKey) }
+        escapeHotKey = nil
+        guard on else { return }
+        var ref: EventHotKeyRef?
+        let status = RegisterEventHotKey(UInt32(kVK_Escape), 0, EventHotKeyID(signature: OSType(0x4D444354), id: 100), GetApplicationEventTarget(), 0, &ref)
+        if status == noErr { escapeHotKey = ref } else { NSLog("Mini Dict: could not register Esc for screenshot translation, error %d", status) }
+    }
+
     private func hotKeyPressed(_ id: UInt32) {
         switch id {
+        case 100:
+            screenTranslator.escape()
         case 1:
             if NSApp.isActive && window.isKeyWindow {
                 NSApp.hide(nil)
@@ -215,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.unhide(nil)
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
-        store.focusRequest += 1
+        store.main.focusRequest += 1
     }
 
     @objc private func showSettings() {
@@ -226,34 +267,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func screenshot() {
-        let before = NSPasteboard.general.changeCount
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-        process.arguments = ["-i", "-c"]
-        process.terminationHandler = { [weak self] finished in
-            let status = finished.terminationStatus
-            DispatchQueue.main.async { self?.finishScreenshot(status: status, before: before) }
-        }
-        do {
-            try process.run()
-        } catch {
-            store.showOcrError(L("截图失败：", "Screenshot failed: ") + error.localizedDescription)
-            showWindow()
-        }
-    }
-
-    private func finishScreenshot(status: Int32, before: Int) {
-        let pasteboard = NSPasteboard.general
-        showWindow()
-        if pasteboard.changeCount == before && !CGPreflightScreenCaptureAccess() {
-            store.showOcrError(L("没有截图权限：请在“系统设置 > 隐私与安全性 > 屏幕与系统录音”中打开 Mini Dict，然后重新打开本应用", "Screen Recording permission is missing: turn on Mini Dict in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app"))
-        } else if pasteboard.changeCount == before {
-            store.showOcrError(L("没有截到图片（已取消，或 screencapture 退出码 \(status)）", "No screenshot was taken (cancelled, or screencapture exited with status \(status))"))
-        } else if let image = NSImage(pasteboard: pasteboard) {
-            store.runOcr(image)
-        } else {
-            store.showOcrError(L("截图后剪贴板里没有图片", "The clipboard has no image after the screenshot"))
-        }
+        screenTranslator.start()
     }
 
     private func translateClipboard() {
@@ -261,8 +275,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let text = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if text.isEmpty {
             store.page = .lookup
-            store.lookup = nil
-            store.note = Note(text: L("剪贴板里没有文字，请先按 Cmd+C 复制", "No text in the clipboard, press Cmd+C first"), isError: true)
+            store.main.lookup = nil
+            store.main.note = Note(text: L("剪贴板里没有文字，请先按 Cmd+C 复制", "No text in the clipboard, press Cmd+C first"), isError: true)
         } else {
             store.search(text)
         }
