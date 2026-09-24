@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let popover = NSPopover()
     private let screenTranslator = ScreenTranslator()
     private lazy var selectTranslator = SelectTranslator(store: store)
+    private lazy var wordCapture = WordCapture(store: store, panel: selectTranslator)
     private var screenBusy = false
     private var selectVisible = false
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
@@ -56,6 +57,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         store.onSelectChanged = { [weak self] in self?.selectTranslator.apply() }
         selectTranslator.apply()
+        store.onCaptureChanged = { [weak self] in self?.wordCapture.apply() }
+        wordCapture.apply()
         quick.onSearch = { [weak self] in self?.store.addHistory($0) }
         quick.onBrief = { [weak self] in self?.store.setBrief($0, $1) }
         popover.behavior = .transient
@@ -189,6 +192,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         host.registerForDraggedTypes([.fileURL, .png, .tiff])
         host.onDrop = { [weak self] pasteboard in
             guard let self else { return false }
+            if self.store.page == .documents {
+                guard let url = (pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL])?.first else { return false }
+                self.store.documents.open(url)
+                return true
+            }
             guard let image = NSImage(pasteboard: pasteboard) else {
                 self.store.showOcrError(L("请拖入图片文件", "Please drop an image file"))
                 return false

@@ -462,6 +462,26 @@ enum OCR {
         }.value
     }
 
+    static func words(_ image: CGImage) async throws -> [(text: String, box: CGRect)] {
+        try await Task.detached(priority: .userInitiated) {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US", "zh-Hans"]
+            request.usesLanguageCorrection = false
+            try VNImageRequestHandler(cgImage: image).perform([request])
+            var words: [(text: String, box: CGRect)] = []
+            for observation in request.results ?? [] {
+                guard let candidate = observation.topCandidates(1).first else { continue }
+                let string = candidate.string
+                string.enumerateSubstrings(in: string.startIndex..., options: .byWords) { word, range, _, _ in
+                    guard let word, let box = try? candidate.boundingBox(for: range)?.boundingBox else { return }
+                    words.append((word, box))
+                }
+            }
+            return words
+        }.value
+    }
+
     static func join(_ texts: [String], separator: String = "\n") -> String {
         texts.joined(separator: separator).replacingOccurrences(of: "([\\u3400-\\u9fff])[ \\t]+(?=[\\u3400-\\u9fff])", with: "$1", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
     }

@@ -156,6 +156,12 @@ final class SelectTranslator {
         return text
     }
 
+    func present(_ text: String, at rect: NSRect) {
+        anchor = rect
+        lastText = text
+        show(text)
+    }
+
     private func floatingPanel(_ frame: NSRect) -> KeyPanel {
         let panel = KeyPanel(contentRect: frame, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.level = .floating
@@ -210,5 +216,67 @@ final class SelectTranslator {
         panel.contentView = host
         panel.orderFrontRegardless()
         visible = true
+    }
+}
+
+@MainActor
+final class WordCapture {
+    private let store: Store
+    private let panel: SelectTranslator
+    private var timer: Timer?
+    private var lastMouse = NSPoint.zero
+    private var lastMove = Date()
+    private var shownAt: NSPoint?
+    private var triedAt: NSPoint?
+    private var busy = false
+
+    init(store: Store, panel: SelectTranslator) {
+        self.store = store
+        self.panel = panel
+    }
+
+    func apply() {
+        timer?.invalidate()
+        timer = nil
+        guard store.wordCapture else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+    }
+
+    private func tick() {
+        let mouse = NSEvent.mouseLocation
+        let option = NSEvent.modifierFlags.intersection(.deviceIndependentFlagsMask) == .option
+        if mouse != lastMouse {
+            lastMouse = mouse
+            lastMove = Date()
+        }
+        if let shownAt, !option || hypot(mouse.x - shownAt.x, mouse.y - shownAt.y) > 12 {
+            self.shownAt = nil
+            panel.hide()
+        }
+        if !option { triedAt = nil }
+        guard option, shownAt == nil, !busy, Date().timeIntervalSince(lastMove) >= 0.3 else { return }
+        if let triedAt, hypot(mouse.x - triedAt.x, mouse.y - triedAt.y) < 3 { return }
+        let top = NSWindow.windowNumber(at: mouse, belowWindowWithWindowNumber: 0)
+        guard !NSApp.windows.contains(where: { $0.windowNumber == top }) else { return }
+        guard let screen = NSScreen.screens.first(where: { NSMouseInRect(mouse, $0.frame, false) }) else { return }
+        triedAt = mouse
+        busy = true
+        Task {
+            await capture(mouse, screen: screen)
+            busy = false
+        }
+    }
+
+    private func capture(_ mouse: NSPoint, screen: NSScreen) async {
+        let rect = NSRect(x: mouse.x - 150, y: mouse.y - 40, width: 300, height: 80).intersection(screen.frame).integral
+        guard rect.width > 20, rect.height > 20, let image = try? await ScreenTranslator.capture(rect, screen: screen, excluding: []), let words = try? await OCR.words(image), !words.isEmpty else { return }
+        let point = CGPoint(x: (mouse.x - rect.minX) / rect.width, y: (mouse.y - rect.minY) / rect.height)
+        let hit = words.first { $0.box.contains(point) } ?? words.min { hypot($0.box.midX - point.x, $0.box.midY - point.y) < hypot($1.box.midX - point.x, $1.box.midY - point.y) }!
+        guard NSEvent.modifierFlags.contains(.option), hypot(NSEvent.mouseLocation.x - mouse.x, NSEvent.mouseLocation.y - mouse.y) <= 12 else { return }
+        let box = NSRect(x: rect.minX + hit.box.minX * rect.width, y: rect.minY + hit.box.minY * rect.height, width: hit.box.width * rect.width, height: hit.box.height * rect.height)
+        panel.present(hit.text, at: box)
+        shownAt = mouse
     }
 }

@@ -1,4 +1,5 @@
 import SwiftUI
+import Translation
 
 final class FocusTextView: NSTextView {
     var onFocus: (Bool) -> Void = { _ in }
@@ -146,12 +147,13 @@ struct MainView: View {
     @ObservedObject var store: Store
     @State private var compact = false
 
-    private static let sections: [(page: Page, icon: String)] = [(.lookup, "character.book.closed"), (.screenshot, "camera.viewfinder"), (.settings, "gearshape")]
+    private static let sections: [(page: Page, icon: String)] = [(.lookup, "character.book.closed"), (.screenshot, "camera.viewfinder"), (.documents, "doc.text"), (.settings, "gearshape")]
 
     static func title(_ page: Page) -> String {
         switch page {
         case .lookup: L("查词", "Lookup")
         case .screenshot: L("截图翻译", "Screenshot")
+        case .documents: L("文档翻译", "Documents")
         case .settings: L("设置", "Settings")
         }
     }
@@ -159,7 +161,7 @@ struct MainView: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: compact ? 52 : 190)
+                .frame(width: compact ? 52 : 212)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .background(SidebarMaterial().ignoresSafeArea())
             Rectangle().fill(Theme.border.color).frame(width: 1).ignoresSafeArea()
@@ -172,12 +174,39 @@ struct MainView: View {
         .themed(background: false)
     }
 
+    private func toggleRow(_ title: String, icon: String, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: icon).frame(width: 18).foregroundStyle(on ? Theme.accent.color : Theme.text.color)
+                if !compact {
+                    Text(title).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Capsule()
+                        .fill(on ? Theme.accent.color : Theme.border.color)
+                        .frame(width: 26, height: 15)
+                        .overlay(alignment: on ? .trailing : .leading) { Circle().fill(Color.white).padding(2) }
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 28, maxHeight: 28, alignment: compact ? .center : .leading)
+            .padding(.horizontal, compact ? 0 : 8)
+            .contentShape(RoundedRectangle(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .help(title)
+        .accessibilityLabel(title)
+        .accessibilityValue(on ? "1" : "0")
+    }
+
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 2) {
             if !compact {
                 Text("Mini Dict").font(.caption.weight(.semibold)).foregroundStyle(Theme.secondary.color).padding(.horizontal, 8).padding(.bottom, 4)
             }
             ForEach(MainView.sections, id: \.page) { section in
+                if section.page == .documents {
+                    toggleRow(L("取词", "Word capture"), icon: "hand.point.up.left", on: store.wordCapture) { store.setWordCapture(!store.wordCapture) }
+                    toggleRow(L("划词", "Select text"), icon: "text.cursor", on: store.selectTranslate) { store.setSelectTranslate(!store.selectTranslate) }
+                }
                 let selected = store.page == section.page
                 Button { store.page = section.page } label: {
                     HStack(spacing: 8) {
@@ -237,6 +266,7 @@ struct MainView: View {
                     switch store.page {
                     case .lookup: LookupContent(store: store, search: store.main)
                     case .screenshot: ScreenshotPage(store: store)
+                    case .documents: DocumentsPage(documents: store.documents)
                     case .settings: SettingsView(store: store)
                     }
                 }
@@ -266,15 +296,23 @@ struct StartBlock: View {
             .font(.caption)
             .foregroundStyle(Theme.secondary.color)
             .padding(.horizontal, 4)
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
-            FeatureCard(icon: "camera.viewfinder", title: L("截图翻译", "Screenshot"), text: L("框选屏幕上的文字，译文贴在原处", "Select text on screen, the translation is pinned in place")) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 12, alignment: .top)], alignment: .leading, spacing: 12) {
+            FeatureCard(icon: "camera.viewfinder", title: L("截图翻译", "Screenshot"), text: L("框选屏幕上的文字，译文直接贴在原处", "Select text on screen; the translation is pinned over it")) {
                 Button(L("开始", "Start")) { store.takeScreenshot() }.buttonStyle(PillButtonStyle(small: true))
             }
-            FeatureCard(icon: "text.cursor", title: L("划词", "Select to translate"), text: L("在任何应用里选中文字即可翻译", "Select text in any app to translate it")) {
+            FeatureCard(icon: "text.cursor", title: L("划词", "Select to translate"), text: L("在任何应用里选中文字，译文出现在下方", "Select text in any app; the translation appears under it")) {
                 Toggle("", isOn: Binding(get: { store.selectTranslate }, set: { store.setSelectTranslate($0) })).toggleStyle(ThemedToggleStyle()).labelsHidden()
+            }
+            FeatureCard(icon: "hand.point.up.left", title: L("取词", "Word capture"), text: L("按住 Option 把指针停在单词上即可查词", "Hold Option and rest the pointer on a word to look it up")) {
+                Toggle("", isOn: Binding(get: { store.wordCapture }, set: { store.setWordCapture($0) })).toggleStyle(ThemedToggleStyle()).labelsHidden()
+            }
+            FeatureCard(icon: "doc.text", title: L("文档翻译", "Documents"), text: L("PDF、Word、PPT、Excel、EPUB、图片逐段对照翻译", "PDF, Word, PPT, Excel, EPUB and images, paragraph by paragraph")) {
+                Button(L("打开", "Open")) { store.page = .documents }.buttonStyle(PillButtonStyle(small: true))
             }
         }
         if let note = store.selectNote { NoteView(note: note) }
+        if let note = store.captureNote { NoteView(note: note) }
+        SourcesCard(store: store)
     }
 }
 
@@ -285,17 +323,69 @@ struct FeatureCard<Action: View>: View {
     @ViewBuilder let action: () -> Action
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: icon).foregroundStyle(Theme.accent.color)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundStyle(Theme.accent.color)
+                    .frame(width: 40, height: 40)
+                    .background(Theme.accent.color.opacity(0.14), in: Circle())
                 Text(title).font(.system(.headline, design: .serif)).lineLimit(1)
             }
-            Text(text).font(.caption).foregroundStyle(Theme.secondary.color).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-            action()
+            Text(text).font(.callout).foregroundStyle(Theme.secondary.color).lineLimit(2, reservesSpace: true)
+            HStack {
+                Spacer()
+                action()
+            }
         }
-        .frame(maxWidth: .infinity, minHeight: 104, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .card(padding: 12)
+    }
+}
+
+struct SourcesCard: View {
+    @ObservedObject var store: Store
+    @State private var apple: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "point.3.connected.trianglepath.dotted").foregroundStyle(Theme.accent.color)
+                Text(L("翻译来源", "Sources")).font(.system(.headline, design: .serif))
+            }
+            row(L("有道词典", "Youdao dictionary"), on: true, L("免费 · 单词和短语", "Free · words and phrases"))
+            ForEach(store.apis, id: \.provider) { api in
+                if store.ignoreAPIKeys {
+                    row(api.provider.name, on: false, L("已忽略（测试）", "Ignored (testing)"))
+                } else if let effective = api.trimmed.effective {
+                    row(api.provider.name, on: true, L("已配置 · ", "Configured · ") + effective.model)
+                } else {
+                    row(api.provider.name, on: false, L("未填密钥", "No key"))
+                }
+            }
+            row("Google", on: true, L("免费 · 非官方接口", "Free · unofficial endpoint"))
+            row(Translator.apple, on: apple == nil, apple ?? L("免费 · 本机", "Free · on this Mac"))
+            row("MyMemory", on: true, L("免费 · 每日限额", "Free · daily limit"))
+        }
+        .card(padding: 12)
+        .task {
+            guard #available(macOS 26.0, *) else {
+                apple = L("需要 macOS 26", "Needs macOS 26")
+                return
+            }
+            let status = await LanguageAvailability().status(from: Locale.Language(identifier: "en"), to: Locale.Language(identifier: "zh-Hans"))
+            apple = status == .installed ? nil : L("未下载语言包", "Language pack not downloaded")
+        }
+    }
+
+    private func row(_ name: String, on: Bool, _ status: String) -> some View {
+        HStack(spacing: 8) {
+            Circle().fill(on ? Color.green : Theme.border.color).frame(width: 8, height: 8)
+            Text(name).lineLimit(1)
+            Spacer(minLength: 8)
+            Text(status).font(.callout).foregroundStyle(Theme.secondary.color).lineLimit(1)
+        }
+        .frame(height: 22)
     }
 }
 
@@ -454,11 +544,12 @@ struct LookupPage: View {
         if let note = search.note { NoteView(note: note) }
         if let lookup = search.lookup {
             VStack(alignment: .leading, spacing: 8) {
+                if !(compact && lookup.kind == .paragraph) {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     if lookup.kind != .paragraph {
                         Text(lookup.text).font(.system(size: compact ? 20 : 26, weight: .semibold, design: .serif)).lineLimit(2).textSelection(.enabled)
                     }
-                    if case .done(let entry?) = lookup.entry { Phonetics(search: search, word: lookup.text, entry: entry) }
+                    if !compact, case .done(let entry?) = lookup.entry { Phonetics(search: search, word: lookup.text, entry: entry) }
                     Spacer(minLength: 4)
                     if case .done(.some) = lookup.entry { RouteTag(route: L("有道", "Youdao")) }
                     let on = store.favourites.contains(lookup.text)
@@ -468,6 +559,8 @@ struct LookupPage: View {
                     .buttonStyle(.plain)
                     .help(on ? L("取消收藏", "Remove favourite") : L("收藏", "Add favourite"))
                 }
+                }
+                if compact, case .done(let entry?) = lookup.entry { Phonetics(search: search, word: lookup.text, entry: entry) }
                 if let translation = lookup.translation { TranslationView(store: store, lookup: lookup, translation: translation) }
                 if let entry = lookup.entry { EntryView(entry: entry) }
             }

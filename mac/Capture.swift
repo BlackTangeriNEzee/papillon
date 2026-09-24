@@ -420,7 +420,7 @@ final class ScreenTranslator {
         }
     }
 
-    private static func capture(_ rect: NSRect, screen: NSScreen, excluding windowIDs: [CGWindowID]) async throws -> CGImage {
+    static func capture(_ rect: NSRect, screen: NSScreen, excluding windowIDs: [CGWindowID]) async throws -> CGImage {
         guard let displayID = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID else {
             throw Failure(L("找不到显示器", "Display not found"))
         }

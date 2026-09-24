@@ -19,11 +19,11 @@ The certificate is self-signed, so the first time Gatekeeper may block the app: 
 
 ## Using it
 
-The window has a sidebar with 查词 Lookup, 截图翻译 Screenshot and 设置 Settings, followed by your favourites (click one to look it up).
+The window has a sidebar with 查词 Lookup, 截图翻译 Screenshot, the 取词 Word capture and 划词 Select text switches, 文档翻译 Documents and 设置 Settings, followed by your favourites (click one to look it up).
 Below 640 points wide the sidebar shows icons only; the window can be as small as 520 x 380.
 On the Lookup page, type a word, phrase or paragraph and press Enter (or click the round arrow button).
 Shift+Enter adds a new line.
-Before a search, the page shows the three shortcuts and cards to start screenshot translation or turn on select to translate.
+Before a search, the page shows the three shortcuts, cards to start screenshot translation, switch select to translate and word capture, or open Documents, and a Sources card showing which translation sources are configured.
 When the input is focused and empty, a list of the last 10 lookups drops down under it, each with a short meaning remembered from its last lookup; typing filters the list, clicking a row searches it again, "清空 Clear" empties the history, and Esc or a click elsewhere hides it.
 Deleting all the text clears the result at once.
 
@@ -49,6 +49,20 @@ When you select text in another app, a small button appears next to the selectio
 Clicking elsewhere, selecting something else, or Esc hides the panel; pinned screenshots still take Esc first.
 Apps that do not expose the selected text to Accessibility (some browsers and PDF viewers) work only with "剪贴板回退 Clipboard fallback" on, which copies the selection with Cmd+C and puts your clipboard back afterwards.
 Selections inside Mini Dict are ignored.
+
+## Word capture
+
+Turn on "取词 Word capture" in the sidebar or on the Lookup page.
+Hold Option and rest the pointer on a word in any app for a moment: a small area around the pointer is captured (Screen Recording permission), read with Vision, and the word under the pointer is looked up in the same small panel as select to translate.
+Moving the pointer away or releasing Option hides it.
+
+## Documents
+
+The 文档翻译 Documents page translates a whole file paragraph by paragraph: drop a file on the window or click +.
+Supported: PDF, Word (.docx), PowerPoint (.pptx), Excel (.xlsx, cell texts), EPUB, plain text and Markdown, and images (read with Vision).
+Each paragraph shows the original with its translation below, filled in as translations arrive (up to 3 at a time, pieces of up to 1500 characters) with a progress bar and a Cancel button; a paragraph that fails shows its error in red.
+"导出译文 Export translation" saves a bilingual Markdown file (.md) or the translation only (.txt); "复制全部 Copy all" copies the translation; "清除 Clear" starts over.
+"问答速读 Q&A" sends a question with the document text (up to 60,000 characters, with a note when it is cut) to the API and shows the answer; it needs a DeepSeek or OpenAI key.
 
 ## Menu bar
 

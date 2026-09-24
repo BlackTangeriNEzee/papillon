@@ -5,7 +5,7 @@ import Carbon.HIToolbox
 import ServiceManagement
 
 enum Page: Hashable, CaseIterable {
-    case lookup, screenshot, settings
+    case lookup, screenshot, documents, settings
 }
 
 enum Load<Value> {
@@ -223,6 +223,15 @@ final class Store: ObservableObject {
         didSet { UserDefaults.standard.set(clipboardFallback, forKey: "clipboardFallback") }
     }
     @Published var selectNote: Note?
+    @Published var wordCapture = UserDefaults.standard.bool(forKey: "wordCapture") {
+        didSet {
+            UserDefaults.standard.set(wordCapture, forKey: "wordCapture")
+            onCaptureChanged()
+        }
+    }
+    @Published var captureNote: Note?
+    var onCaptureChanged: () -> Void = {}
+    let documents = Documents()
     @Published var ignoreAPIKeys = UserDefaults.standard.bool(forKey: "ignoreAPIKeys") {
         didSet { UserDefaults.standard.set(ignoreAPIKeys, forKey: "ignoreAPIKeys") }
     }
@@ -247,6 +256,15 @@ final class Store: ObservableObject {
         var updated = briefs.filter { keep.contains($0.key) }
         updated[text] = String(brief.prefix(80))
         briefs = updated
+    }
+
+    func setWordCapture(_ on: Bool) {
+        captureNote = nil
+        if on && !CGPreflightScreenCaptureAccess() {
+            CGRequestScreenCaptureAccess()
+            captureNote = Note(text: L("没有截图权限：请在“系统设置 > 隐私与安全性 > 屏幕与系统录音”中打开 Mini Dict，然后重新打开本应用", "Screen Recording permission is missing: turn on Mini Dict in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app"), isError: true)
+        }
+        wordCapture = on
     }
 
     func setSelectTranslate(_ on: Bool) {
