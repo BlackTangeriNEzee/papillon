@@ -275,7 +275,7 @@ final class Store: ObservableObject {
         captureNote = nil
         if on && !CGPreflightScreenCaptureAccess() {
             CGRequestScreenCaptureAccess()
-            captureNote = Note(text: L("没有截图权限：请在“系统设置 > 隐私与安全性 > 屏幕与系统录音”中打开 Mini Dict，然后重新打开本应用", "Screen Recording permission is missing: turn on Mini Dict in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app"), isError: true)
+            captureNote = Note(text: L("没有截图权限：请在“系统设置 > 隐私与安全性 > 屏幕与系统录音”中打开招财词典，然后重新打开本应用", "Screen Recording permission is missing: turn on Zhaocai Dict (招财词典) in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app"), isError: true)
         }
         wordCapture = on
     }
@@ -283,7 +283,7 @@ final class Store: ObservableObject {
     func setSelectTranslate(_ on: Bool) {
         selectNote = nil
         if on && !AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary) {
-            selectNote = Note(text: L("没有辅助功能权限：请在“系统设置 > 隐私与安全性 > 辅助功能”中打开 Mini Dict，划词翻译才能读取选中的文字", "Accessibility permission is missing: turn on Mini Dict in System Settings > Privacy & Security > Accessibility so Select to translate can read the selected text"), isError: true)
+            selectNote = Note(text: L("没有辅助功能权限：请在“系统设置 > 隐私与安全性 > 辅助功能”中打开招财词典，划词翻译才能读取选中的文字", "Accessibility permission is missing: turn on Zhaocai Dict (招财词典) in System Settings > Privacy & Security > Accessibility so Select to translate can read the selected text"), isError: true)
         }
         selectTranslate = on
     }

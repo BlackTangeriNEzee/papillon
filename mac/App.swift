@@ -114,8 +114,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let appMenu = NSMenu()
         appMenu.addItem(withTitle: L("设置…", "Settings…"), action: #selector(showSettings), keyEquivalent: ",")
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: L("隐藏 Mini Dict", "Hide Mini Dict"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
-        appMenu.addItem(withTitle: L("退出 Mini Dict", "Quit Mini Dict"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appMenu.addItem(withTitle: L("隐藏招财词典", "Hide Zhaocai Dict"), action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(withTitle: L("退出招财词典", "Quit Zhaocai Dict"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         let edit = NSMenu(title: L("编辑", "Edit"))
         edit.addItem(withTitle: L("撤销", "Undo"), action: Selector(("undo:")), keyEquivalent: "z")
         edit.addItem(withTitle: L("重做", "Redo"), action: Selector(("redo:")), keyEquivalent: "Z")
@@ -153,7 +153,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             button.image = photo
             button.imageScaling = .scaleNone
             statusItem.length = 30
-        } else if let image = NSImage(systemSymbolName: "character.book.closed", accessibilityDescription: "Mini Dict") {
+        } else if let image = NSImage(systemSymbolName: "character.book.closed", accessibilityDescription: L("招财词典", "Zhaocai Dict")) {
             image.isTemplate = true
             button.image = image
         } else {
@@ -209,7 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.store.runOcr(image)
             return true
         }
-        window.title = "Mini Dict"
+        window.title = L("招财词典", "Zhaocai Dict")
         window.backgroundColor = Theme.background.ns
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -265,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         guard on else { return }
         var ref: EventHotKeyRef?
         let status = RegisterEventHotKey(UInt32(kVK_Escape), 0, EventHotKeyID(signature: OSType(0x4D444354), id: 100), GetApplicationEventTarget(), 0, &ref)
-        if status == noErr { escapeHotKey = ref } else { NSLog("Mini Dict: could not register Esc for screenshot translation, error %d", status) }
+        if status == noErr { escapeHotKey = ref } else { NSLog("Zhaocai Dict: could not register Esc for screenshot translation, error %d", status) }
     }
 
     private func hotKeyPressed(_ id: UInt32) {

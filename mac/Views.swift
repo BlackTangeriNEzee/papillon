@@ -200,7 +200,7 @@ struct MainView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 2) {
             if !compact {
-                Text("Mini Dict").font(.caption.weight(.semibold)).foregroundStyle(Theme.secondary.color).padding(.horizontal, 8).padding(.bottom, 4)
+                Text(L("招财词典", "Zhaocai Dict")).font(.caption.weight(.semibold)).foregroundStyle(Theme.secondary.color).padding(.horizontal, 8).padding(.bottom, 4)
             }
             ForEach(MainView.sections, id: \.page) { section in
                 if section.page == .documents {
