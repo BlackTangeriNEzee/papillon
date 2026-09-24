@@ -99,6 +99,7 @@ enum Net {
 enum TextTools {
     static let punctuation = try! Regex("[\\s.,!?;:。，！？；：]+")
     static let fence = try! Regex("^```(?:json)?\\s*|\\s*```$")
+    static let block = try! Regex("(?is)<(style|script)\\b.*?</\\1\\s*>")
     static let tag = try! Regex("<[^>]*>")
     static let entity = try! Regex("&(#[0-9]+|#[xX][0-9a-fA-F]+|[a-zA-Z]+);")
     static let space = try! Regex("\\s+")
@@ -119,7 +120,8 @@ enum TextTools {
     static func norm(_ text: String) -> String { text.lowercased().replacing(punctuation, with: "") }
 
     static func plain(_ html: String) -> String {
-        html.replacing(tag, with: "")
+        html.replacing(block, with: "")
+            .replacing(tag, with: "")
             .replacing(entity) { match in
                 let name = String(match.output[1].substring ?? "")
                 switch name {
