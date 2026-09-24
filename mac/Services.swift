@@ -1,4 +1,5 @@
 import AppKit
+import Translation
 import Vision
 
 enum UILanguage: String, CaseIterable {
@@ -90,7 +91,7 @@ struct APISettings {
     }
 
     static func active() -> [APISettings] {
-        Provider.all.compactMap { stored($0).effective }
+        UserDefaults.standard.bool(forKey: "ignoreAPIKeys") ? [] : Provider.all.compactMap { stored($0).effective }
     }
 
     var trimmed: APISettings {
@@ -189,7 +190,73 @@ enum TextTools {
 }
 
 enum Translator {
-    static var free: String { L("免费", "Free") }
+    static let google = "Google"
+    static var apple: String { L("Apple 翻译", "Apple Translation") }
+    static let myMemoryRoute = "MyMemory"
+    static var freeRoutes: [String] { [google, apple, myMemoryRoute] }
+
+    static func withTimeout<T: Sendable>(_ seconds: Double, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await work() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw Failure(L("超时", "timed out") + " (\(Int(seconds)) s)")
+            }
+            defer { group.cancelAll() }
+            return try await group.next()!
+        }
+    }
+
+    static func googleText(_ text: String, toEnglish: Bool) async throws -> String {
+        var lines: [String] = []
+        for line in text.components(separatedBy: .newlines) {
+            var parts: [String] = []
+            for part in TextTools.chunks(line, size: 1500) {
+                let pair = toEnglish ? "sl=zh-CN&tl=en" : "sl=en&tl=zh-CN"
+                var request = URLRequest(url: URL(string: (UserDefaults.standard.string(forKey: "googleBase") ?? "https://translate.googleapis.com") + "/translate_a/t?client=dict-chrome-ex&\(pair)&q=\(Net.encode(part))")!)
+                request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+                let (data, status) = try await Net.fetch(request)
+                guard (200..<300).contains(status) else { throw Failure("HTTP \(status)") }
+                guard let reply = Net.json(data) as? [Any] else { throw Failure(L("返回格式不对", "unexpected reply")) }
+                parts.append(reply.map { ($0 as? String) ?? (($0 as? [Any])?.first as? String) ?? "" }.joined())
+            }
+            lines.append(parts.joined(separator: toEnglish ? " " : ""))
+        }
+        let result = lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !result.isEmpty else { throw Failure(L("没有返回译文", "no translation returned")) }
+        return result
+    }
+
+    static func appleText(_ text: String, toEnglish: Bool) async throws -> String {
+        guard #available(macOS 26.0, *) else { throw Failure(L("需要 macOS 26 或更新版本", "needs macOS 26 or later")) }
+        let chinese = Locale.Language(identifier: "zh-Hans"), english = Locale.Language(identifier: "en")
+        let session = TranslationSession(installedSource: toEnglish ? chinese : english, target: toEnglish ? english : chinese)
+        do {
+            return try await session.translate(text).targetText
+        } catch TranslationError.notInstalled {
+            throw Failure(L("语言包未下载（系统设置 > 通用 > 语言与地区 > 翻译语言）", "language pack not downloaded (System Settings > General > Language & Region > Translation Languages)"))
+        }
+    }
+
+    static func freeChain(_ text: String) async throws -> Translated {
+        let toEnglish = TextTools.isCJK(text)
+        let sources: [(String, @Sendable () async throws -> String)] = [
+            (google, { try await googleText(text, toEnglish: toEnglish) }),
+            (apple, { try await appleText(text, toEnglish: toEnglish) }),
+            (myMemoryRoute, { try await freeText(text, toEnglish: toEnglish) }),
+        ]
+        var errors: [String] = []
+        for (name, work) in sources {
+            do {
+                let result = try await withTimeout(8, work)
+                let fallback = errors.isEmpty ? nil : L("已改用 \(name)", "Used \(name)") + " (" + errors.joined(separator: "; ") + ")"
+                return Translated(route: name, text: result, fallback: fallback)
+            } catch {
+                errors.append("\(name): \(error.localizedDescription)")
+            }
+        }
+        throw Failure(errors.joined(separator: "; "))
+    }
 
     static func translator(_ toEnglish: Bool) -> String {
         "You are a professional translator. Translate the user's text into natural, idiomatic \(toEnglish ? "English" : "Simplified Chinese") that a native speaker would write, keeping the meaning, tone and register. Never translate word for word and never add explanations."
@@ -227,6 +294,8 @@ enum Translator {
             translation.fallback = answered.fallback
             return translation
         }
+        let chained = try await freeChain(text)
+        guard chained.route == myMemoryRoute else { return Translation(route: chained.route, candidates: [chained.text], senses: [], fallback: chained.fallback) }
         let reply = try await myMemory(text, toEnglish: toEnglish)
         let matches = (reply["matches"] as? [[String: Any]] ?? []).filter { TextTools.norm($0["segment"] as? String ?? "") == TextTools.norm(text) }
         var seen: Set<String> = [TextTools.norm(text)]
@@ -237,7 +306,7 @@ enum Translator {
             seen.insert(key)
             candidates.append(candidate.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        return Translation(route: free, candidates: Array(candidates.prefix(5)), senses: [])
+        return Translation(route: myMemoryRoute, candidates: Array(candidates.prefix(5)), senses: [], fallback: chained.fallback)
     }
 
     static func text(_ text: String) async throws -> Translated {
@@ -245,7 +314,7 @@ enum Translator {
         if let answered = try await withAPIs({ api in try await callApi(api, system: "\(translator(toEnglish)) Keep the paragraph breaks. Reply with the translation only.", text: text) }) {
             return Translated(route: answered.api.route, text: answered.value, fallback: answered.fallback)
         }
-        return Translated(route: free, text: try await freeText(text, toEnglish: toEnglish))
+        return try await freeChain(text)
     }
 
     static func freeText(_ text: String, toEnglish: Bool) async throws -> String {

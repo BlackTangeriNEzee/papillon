@@ -223,6 +223,9 @@ final class Store: ObservableObject {
         didSet { UserDefaults.standard.set(clipboardFallback, forKey: "clipboardFallback") }
     }
     @Published var selectNote: Note?
+    @Published var ignoreAPIKeys = UserDefaults.standard.bool(forKey: "ignoreAPIKeys") {
+        didSet { UserDefaults.standard.set(ignoreAPIKeys, forKey: "ignoreAPIKeys") }
+    }
     var onSelectChanged: () -> Void = {}
     var takeScreenshot: () -> Void = {}
     var openSettings: () -> Void = {}

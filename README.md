@@ -32,11 +32,12 @@ How a lookup is answered:
 - One line under 60 characters (a word or a short phrase, English or Chinese) is looked up in the Youdao dictionary first.
   If Youdao has an entry, the result shows it: UK and US phonetics with play buttons (pinyin for Chinese), the concise senses with the part of speech (n., v., adj. and so on) in front of each line, and a row of web translations.
   For a single English word, the Wiktionary "English definitions" are below, collapsed.
-- If Youdao has no entry, and for longer or multi-line text, the text is translated with the API (DeepSeek first, then OpenAI, see Settings), or with the free MyMemory route when no API key is saved.
+- If Youdao has no entry, and for longer or multi-line text, the text is translated with the API (DeepSeek first, then OpenAI, see Settings).
+  When no API key is saved, or both APIs fail, free sources are tried in order, each with an 8 second limit: Google, Apple Translation, MyMemory; if all fail, all their errors are shown together.
   A short phrase shows up to 5 candidate translations, longer text one translation that keeps line breaks.
 
-Every result shows which source answered: "Youdao", "DeepSeek · model", "OpenAI · model" or "Free".
-When DeepSeek fails and OpenAI answers instead, a small note says why.
+Every result shows which source answered: "Youdao", "DeepSeek · model", "OpenAI · model", "Google", "Apple Translation" or "MyMemory".
+When an earlier source fails and a later one answers, a small note says why.
 
 Closing the window keeps the app running (this can be changed in Settings); click the Dock icon or press Option+Space to bring it back.
 
@@ -101,7 +102,7 @@ Open Settings with Cmd+, from the menu bar icon, or from the sidebar; it is a pa
 
 - Shortcuts: record a new key combination for each of the three shortcuts; a combination must include Command, Option or Control.
 - Language: interface language, 中文 (Simplified Chinese), English, or follow the system.
-- System: launch at login, show the menu bar icon, keep running when the window closes.
+- System: launch at login, show the menu bar icon, keep running when the window closes, select to translate, and "Ignore API keys (testing)", which makes text use the free sources while keeping your keys saved.
 - API: two OpenAI-compatible chat completions APIs, DeepSeek (default base URL `https://api.deepseek.com/v1`, model `deepseek-chat`) and OpenAI (default `https://api.openai.com/v1`, `gpt-4o-mini`).
   Each has a key, a base URL and a model; an empty base URL or model uses the default shown in grey.
   A provider is used when its key is filled; each has its own Test and Clear buttons.
@@ -113,7 +114,10 @@ Open Settings with Cmd+, from the menu bar icon, or from the sidebar; it is a pa
 ## Data sources
 
 - Dictionary senses, phonetics, web translations and audio: Youdao dictionary, an unofficial public endpoint, https://dict.youdao.com/jsonapi and https://dict.youdao.com/dictvoice (no key).
-- Free translation: MyMemory, https://api.mymemory.translated.net (free, no key, a daily limit; long text is sent in pieces of up to 450 characters).
+- Free translation, in this order:
+  - Google, https://translate.googleapis.com/translate_a/t (an unofficial endpoint, no key; it is not reachable from mainland China, in which case the next source answers).
+  - Apple Translation, on the device (macOS 26 or later); the English and Simplified Chinese language packs must be downloaded in System Settings > General > Language & Region > Translation Languages, otherwise it is skipped with a note.
+  - MyMemory, https://api.mymemory.translated.net (no key, a daily limit; long text is sent in pieces of up to 450 characters).
 - English definitions and examples: Wiktionary REST API, https://en.wiktionary.org/api/rest_v1/page/definition/.
 - API translation: DeepSeek and OpenAI chat completions, with your own keys.
 - Text recognition: Apple Vision framework, on the device.

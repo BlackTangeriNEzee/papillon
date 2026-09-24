@@ -561,7 +561,7 @@ struct TranslationView: View {
                 } else {
                     Numbered(items: translation.candidates)
                 }
-                if translation.route == Translator.free && TextTools.isSentence(lookup.text) { FreeHint(store: store) }
+                if Translator.freeRoutes.contains(translation.route) && TextTools.isSentence(lookup.text) { FreeHint(store: store) }
                 if !translation.senses.isEmpty {
                     Heading(text: L("释义", "Senses"))
                     Numbered(items: translation.senses)
@@ -685,7 +685,7 @@ struct ScreenshotPage: View {
             VStack(alignment: .leading, spacing: 10) {
                 RouteTag(route: result.route)
                 Text(result.text).font(.title3).lineSpacing(5).textSelection(.enabled)
-                if result.route == Translator.free { FreeHint(store: store) }
+                if Translator.freeRoutes.contains(result.route) { FreeHint(store: store) }
             }
             .card()
         }
@@ -758,6 +758,7 @@ struct SettingsView: View {
                     .padding(.leading, 16)
             }
             if let note = store.selectNote { NoteView(note: note) }
+            Toggle(L("忽略 API 密钥（测试用）", "Ignore API keys (testing)"), isOn: $store.ignoreAPIKeys)
         }
         .toggleStyle(ThemedToggleStyle())
     }
@@ -783,6 +784,10 @@ struct SettingsView: View {
                 .padding(.top, 6)
                 .onChange(of: [store.apis[index].key, store.apis[index].base, store.apis[index].model]) { store.persist(provider) }
             }
+            Text(L("没有密钥时按顺序使用免费来源：Google（非官方接口，中国大陆可能无法访问）、Apple 翻译（需要在系统设置中下载语言包）、MyMemory（每日限额）。", "Without a key, free sources are tried in order: Google (unofficial endpoint, may be unreachable from mainland China), Apple Translation (needs the language pack in System Settings), MyMemory (daily limit)."))
+                .font(.caption)
+                .foregroundStyle(Theme.secondary.color)
+                .fixedSize(horizontal: false, vertical: true)
             Text(L("修改会自动保存。", "Changes are saved automatically.")).font(.caption).foregroundStyle(Theme.secondary.color)
         }
         .onChange(of: focusedKey) { old, _ in
