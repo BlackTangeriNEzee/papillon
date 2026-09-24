@@ -11,7 +11,7 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 sources=$(find "$root/mac" -maxdepth 1 -name '*.swift' ! -name 'make-icon.swift' | sort)
 swiftc -O -parse-as-library -target arm64-apple-macos14.0 $sources -o "$app/Contents/MacOS/MiniDict"
 swift "$root/mac/make-icon.swift" "$root/build"
-cp "$root/build/AppIcon.icns" "$root/build/StatusIcon.png" "$root/build/StatusIcon@2x.png" "$app/Contents/Resources/"
+cp "$root/build/AppIcon.icns" "$root/build/StatusIcon@2x.png" "$app/Contents/Resources/"
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

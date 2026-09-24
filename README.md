@@ -135,3 +135,8 @@ Open Settings with Cmd+, from the menu bar icon, or from the sidebar; it is a pa
 - English definitions and examples: Wiktionary REST API, https://en.wiktionary.org/api/rest_v1/page/definition/.
 - API translation: any OpenAI-compatible, Anthropic or Gemini API you add, with your own keys.
 - Text recognition: Apple Vision framework, on the device.
+
+## Icon
+
+The app icon and the menu bar icon show Clawd, the Claude Code pixel mascot, redrawn from its cell grid by `mac/make-icon.swift` on every build.
+The mascot artwork belongs to Anthropic; it is used here for personal use only.
