@@ -19,8 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private let screenTranslator = ScreenTranslator()
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let statusMenu = NSMenu()
-    private let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 640), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-    private let settingsWindow = NSWindow(contentRect: .zero, styleMask: [.titled, .closable], backing: .buffered, defer: false)
+    private let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 600), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
     private var hotKeys: [EventHotKeyRef] = []
     private var escapeHotKey: EventHotKeyRef?
 
@@ -53,9 +52,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         NSApp.servicesProvider = self
         NSUpdateDynamicServices()
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self.window else { return event }
+            guard let self, event.window === self.window, self.store.recording == nil else { return event }
             if event.keyCode == UInt16(kVK_Escape) {
                 if let client = self.window.firstResponder as? NSTextInputClient, client.hasMarkedText() { return event }
+                if self.store.main.historyOpen {
+                    self.store.main.historyOpen = false
+                    return nil
+                }
                 NSApp.hide(nil)
                 return nil
             }
@@ -81,7 +84,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
-        guard notification.object as? NSWindow === settingsWindow, store.recording != nil else { return }
+        guard store.recording != nil else { return }
         store.stopRecording()
         store.applyShortcuts()
     }
@@ -119,7 +122,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         statusMenu.addItem(withTitle: L("设置", "Settings"), action: #selector(showSettings), keyEquivalent: "").target = self
         statusMenu.addItem(.separator())
         statusMenu.addItem(withTitle: L("退出", "Quit"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "")
-        settingsWindow.title = L("设置", "Settings")
     }
 
     private func setUpStatusItem() {
@@ -146,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             popover.performClose(nil)
         } else if let button = statusItem.button {
             if NSApp.isHidden {
-                [window, settingsWindow].forEach { $0.orderOut(nil) }
+                window.orderOut(nil)
                 NSApp.unhide(nil)
             }
             if let front = NSWorkspace.shared.frontmostApplication, front != .current {
@@ -177,19 +179,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return true
         }
         window.title = "Mini Dict"
-        for themed in [window, settingsWindow] {
-            themed.backgroundColor = Theme.background.ns
-            themed.titlebarAppearsTransparent = true
-        }
+        window.backgroundColor = Theme.background.ns
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
+        window.contentMinSize = NSSize(width: 700, height: 480)
         window.contentView = host
         window.isReleasedWhenClosed = false
-        if !window.setFrameUsingName("MainWindow") { window.center() }
-        window.setFrameAutosaveName("MainWindow")
-
-        settingsWindow.contentView = NSHostingView(rootView: SettingsView(store: store))
-        settingsWindow.isReleasedWhenClosed = false
-        settingsWindow.delegate = self
-        settingsWindow.center()
+        window.delegate = self
+        if !window.setFrameUsingName("SidebarWindow") { window.center() }
+        window.setFrameAutosaveName("SidebarWindow")
     }
 
     private func installHotKeyHandler() {
@@ -260,10 +258,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc private func showSettings() {
-        store.settings = APISettings.stored()
-        store.settingsNote = nil
-        NSApp.activate()
-        settingsWindow.makeKeyAndOrderFront(nil)
+        store.apis = Provider.all.map(APISettings.stored)
+        store.apiNotes = [:]
+        store.page = .settings
+        showWindow()
     }
 
     @objc private func screenshot() {

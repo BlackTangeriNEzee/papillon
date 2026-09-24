@@ -1,20 +1,50 @@
 import SwiftUI
 
+final class FocusTextView: NSTextView {
+    var onFocus: (Bool) -> Void = { _ in }
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocus(true) }
+        return accepted
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { onFocus(false) }
+        return accepted
+    }
+}
+
 struct InputView: NSViewRepresentable {
     @Binding var text: String
     let focusRequest: Int
     let onSubmit: () -> Void
+    var onFocus: (Bool) -> Void = { _ in }
+    var onEdit: () -> Void = {}
+    var onOutside: () -> Void = {}
+    var onCancel: () -> Bool = { false }
     static let font = NSFont.systemFont(ofSize: 15)
     static let inset = NSSize(width: 10, height: 10)
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let scrollView = NSTextView.scrollableTextView()
+        let scrollView = NSScrollView()
         scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
-        let textView = scrollView.documentView as! NSTextView
+        let size = scrollView.contentSize
+        let textView = FocusTextView(frame: NSRect(origin: .zero, size: size))
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.textContainer?.containerSize = NSSize(width: size.width, height: .greatestFiniteMagnitude)
+        textView.textContainer?.widthTracksTextView = true
         textView.delegate = context.coordinator
+        textView.onFocus = { focused in DispatchQueue.main.async { context.coordinator.parent.onFocus(focused) } }
         textView.font = InputView.font
         textView.textColor = Theme.text.ns
         textView.insertionPointColor = Theme.accent.ns
@@ -25,7 +55,16 @@ struct InputView: NSViewRepresentable {
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.textContainerInset = InputView.inset
+        scrollView.documentView = textView
+        context.coordinator.watch(textView)
         return scrollView
+    }
+
+    static func dismantleNSView(_ nsView: NSScrollView, coordinator: Coordinator) {
+        coordinator.monitors.forEach { NSEvent.removeMonitor($0) }
+        coordinator.monitors = []
+        coordinator.observers.forEach { NotificationCenter.default.removeObserver($0) }
+        coordinator.observers = []
     }
 
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
@@ -37,6 +76,7 @@ struct InputView: NSViewRepresentable {
             DispatchQueue.main.async {
                 textView.window?.makeFirstResponder(textView)
                 textView.selectAll(nil)
+                context.coordinator.parent.onFocus(textView.window?.firstResponder === textView)
             }
         }
     }
@@ -52,15 +92,33 @@ struct InputView: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: InputView
         var focusRequest = -1
+        var monitors: [Any] = []
+        var observers: [NSObjectProtocol] = []
 
         init(_ parent: InputView) { self.parent = parent }
+
+        func watch(_ textView: NSTextView) {
+            if let monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseUp, handler: { [weak self, weak textView] event in
+                guard let self, let textView, event.window === textView.window else { return event }
+                if !textView.bounds.contains(textView.convert(event.locationInWindow, from: nil)) {
+                    DispatchQueue.main.async { self.parent.onOutside() }
+                }
+                return event
+            }) { monitors.append(monitor) }
+            observers.append(NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self, weak textView] notification in
+                guard let self, let textView, notification.object as? NSWindow === textView.window else { return }
+                MainActor.assumeIsolated { self.parent.onOutside() }
+            })
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             parent.text = textView.string
+            parent.onEdit()
         }
 
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.cancelOperation(_:)) { return parent.onCancel() }
             guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
             if NSApp.currentEvent?.modifierFlags.contains(.shift) == true {
                 textView.insertNewlineIgnoringFieldEditor(nil)
@@ -75,38 +133,128 @@ struct InputView: NSViewRepresentable {
 struct MainView: View {
     @ObservedObject var store: Store
 
+    private static let sections: [(page: Page, icon: String)] = [(.lookup, "character.book.closed"), (.screenshot, "camera.viewfinder"), (.favourites, "star"), (.settings, "gearshape")]
+
+    static func title(_ page: Page) -> String {
+        switch page {
+        case .lookup: L("查词", "Lookup")
+        case .screenshot: L("截图翻译", "Screenshot")
+        case .favourites: L("收藏", "Favourites")
+        case .settings: L("设置", "Settings")
+        }
+    }
+
     var body: some View {
-        VStack(spacing: 14) {
-            Pills(selection: $store.page, options: [(Page.lookup, L("查词", "Lookup")), (Page.screenshot, L("截图", "Screenshot")), (Page.lists, L("历史", "History"))])
-                .padding(.top, 14)
+        NavigationSplitView {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(MainView.sections, id: \.page) { section in
+                    let selected = store.page == section.page
+                    Button { store.page = section.page } label: {
+                        Label(MainView.title(section.page), systemImage: section.icon)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .foregroundStyle(selected ? Theme.onAccent.color : Theme.text.color)
+                            .background(selected ? Theme.accent.color : Color.clear, in: RoundedRectangle(cornerRadius: 8))
+                            .contentShape(RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(selected ? .isSelected : [])
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+            .navigationSplitViewColumnWidth(200)
+            .toolbar(removing: .sidebarToggle)
+        } detail: {
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .background(Theme.background.color)
+        }
+        .frame(minWidth: 700, minHeight: 480)
+        .themed(background: false)
+    }
+
+    @ViewBuilder
+    private var detail: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text(MainView.title(store.page)).font(.system(.title, design: .serif))
             if store.page == .lookup {
-                SearchInput(search: store.main) { store.search(store.main.query) }
-                    .padding(.horizontal, 16)
+                SearchInput(store: store, search: store.main) { store.search(store.main.query) }
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     switch store.page {
-                    case .lookup: LookupPage(store: store, search: store.main)
+                    case .lookup: LookupContent(store: store, search: store.main)
                     case .screenshot: ScreenshotPage(store: store)
-                    case .lists: ListsPage(store: store)
+                    case .favourites: FavouritesPage(store: store)
+                    case .settings: SettingsView(store: store)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .padding(.bottom, 20)
             }
         }
-        .frame(minWidth: 360, minHeight: 420)
-        .themed()
+        .padding(.horizontal, 24)
+        .padding(.top, 12)
+    }
+}
+
+struct LookupContent: View {
+    let store: Store
+    @ObservedObject var search: Search
+
+    var body: some View {
+        if search.lookup == nil && search.note == nil { StartBlock(store: store) } else { LookupPage(store: store, search: search) }
+    }
+}
+
+struct StartBlock: View {
+    @ObservedObject var store: Store
+
+    var body: some View {
+        Text((0..<3).map { store.shortcuts[$0].display + " " + [L("显示/隐藏窗口", "show/hide window"), L("截图翻译", "screenshot translate"), L("翻译剪贴板", "translate clipboard")][$0] }.joined(separator: "   ·   "))
+            .font(.caption)
+            .foregroundStyle(Theme.secondary.color)
+            .padding(.horizontal, 4)
+        if !store.favourites.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(L("收藏", "Favourites")).font(.caption).foregroundStyle(Theme.secondary.color)
+                Chips(store: store, items: Array(store.favourites.prefix(10)))
+            }
+            .card()
+        }
     }
 }
 
 struct SearchInput: View {
+    @ObservedObject var store: Store
     @ObservedObject var search: Search
     let submit: () -> Void
+    @State private var cardHeight: CGFloat = 0
+    private static let rowHeight: CGFloat = 26
+
+    private var matches: [String] {
+        let typed = search.query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !typed.isEmpty else { return Array(store.history.prefix(10)) }
+        let starting = store.history.filter { $0.lowercased().hasPrefix(typed) }
+        let containing = store.history.filter { !$0.lowercased().hasPrefix(typed) && $0.lowercased().contains(typed) }
+        return Array((starting + containing).prefix(10))
+    }
 
     var body: some View {
-        InputView(text: $search.query, focusRequest: search.focusRequest, onSubmit: submit)
+        InputView(text: $search.query, focusRequest: search.focusRequest, onSubmit: submit, onFocus: { focused in
+            search.historyOpen = focused && search.query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }, onEdit: {
+            search.historyOpen = true
+        }, onOutside: {
+            search.historyOpen = false
+        }, onCancel: {
+            guard search.historyOpen else { return false }
+            search.historyOpen = false
+            return true
+        })
             .padding(.bottom, 34)
             .overlay(alignment: .topLeading) {
                 if search.query.isEmpty {
@@ -132,6 +280,66 @@ struct SearchInput: View {
             }
             .background(Theme.surface.color, in: RoundedRectangle(cornerRadius: 20))
             .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Theme.border.color))
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { cardHeight = $0 })
+            .overlay(alignment: .topLeading) {
+                if search.historyOpen && !matches.isEmpty { dropdown.offset(y: cardHeight + 6) }
+            }
+            .zIndex(1)
+    }
+
+    private var dropdown: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(matches, id: \.self) { item in
+                        Button { search.run(item) } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "clock").font(.caption).foregroundStyle(Theme.secondary.color)
+                                Text(item.replacingOccurrences(of: "\n", with: " ")).lineLimit(1).truncationMode(.tail)
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(height: SearchInput.rowHeight)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(HistoryRowStyle())
+                    }
+                }
+            }
+            .frame(height: CGFloat(min(matches.count, 10)) * SearchInput.rowHeight)
+            Divider().padding(.vertical, 2)
+            Button(L("清空", "Clear")) {
+                store.history = []
+                search.historyOpen = false
+            }
+            .buttonStyle(.plain)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(Theme.accent.color)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+        }
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface.color, in: RoundedRectangle(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.border.color))
+        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+    }
+}
+
+struct HistoryRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HistoryRow(configuration: configuration)
+    }
+
+    private struct HistoryRow: View {
+        let configuration: ButtonStyleConfiguration
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .background(hovering || configuration.isPressed ? Theme.accent.color.opacity(0.12) : Color.clear)
+                .onHover { hovering = $0 }
+        }
     }
 }
 
@@ -142,7 +350,7 @@ struct QuickView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SearchInput(search: search) { search.run(search.query) }
+            SearchInput(store: store, search: search) { search.run(search.query) }
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     LookupPage(store: store, search: search)
@@ -171,8 +379,8 @@ struct LookupPage: View {
         if let lookup = search.lookup {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    if lookup.kind != .paragraph { Text(lookup.text).font(.system(.title, design: .serif)).textSelection(.enabled) }
-                    if case .done(let translation) = lookup.translation { RouteTag(route: translation.route) }
+                    if lookup.kind != .paragraph { Text(lookup.text).font(.system(size: 30, weight: .semibold, design: .serif)).textSelection(.enabled) }
+                    if case .done(.some) = lookup.entry { RouteTag(route: L("有道", "Youdao")) }
                     Spacer()
                     let on = store.favourites.contains(lookup.text)
                     Button { store.toggleFavourite(lookup.text) } label: {
@@ -181,74 +389,137 @@ struct LookupPage: View {
                     .buttonStyle(.plain)
                     .help(on ? L("取消收藏", "Remove favourite") : L("收藏", "Add favourite"))
                 }
-                if lookup.kind == .word { PhoneticView(search: search, phonetic: lookup.phonetic) }
-                switch lookup.translation {
-                case .loading: Progress(text: L("翻译中…", "Translating…"))
-                case .failed(let message): NoteView(note: Note(text: message, isError: true))
-                case .done(let translation):
-                    if translation.candidates.isEmpty {
-                        NoteView(note: Note(text: L("未找到翻译", "No translation found"), isError: true))
-                    } else if lookup.kind == .paragraph {
-                        Text(translation.candidates[0]).font(.title3).lineSpacing(5).textSelection(.enabled)
-                    } else {
-                        Numbered(items: translation.candidates, font: .title3)
-                    }
-                    if translation.route == Translator.free && TextTools.isSentence(lookup.text) { FreeHint(store: store) }
-                    if !translation.senses.isEmpty {
-                        Heading(text: L("释义", "Senses"))
-                        Numbered(items: translation.senses)
-                    }
-                }
+                if let translation = lookup.translation { TranslationView(store: store, lookup: lookup, translation: translation) }
+                if let entry = lookup.entry { EntryView(search: search, word: lookup.text, entry: entry) }
             }
             .card()
-            if lookup.kind == .word {
-                switch lookup.meanings {
-                case .loading: Progress(text: L("词典加载中…", "Loading dictionary…"))
-                case .failed(let message): NoteView(note: Note(text: L("词典暂不可用", "Dictionary entry unavailable") + " (\(message))"))
-                case .done(nil): NoteView(note: Note(text: L("词典中未找到该词", "Word not found in dictionary"), isError: true))
-                case .done(let meanings?):
-                    ForEach(meanings, id: \.self) { meaning in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Heading(text: meaning.partOfSpeech)
-                            ForEach(Array(meaning.definitions.enumerated()), id: \.offset) { index, definition in
-                                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                                    Text("\(index + 1).").foregroundStyle(Theme.secondary.color).monospacedDigit()
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(definition.text).lineSpacing(2)
-                                        if !definition.example.isEmpty {
-                                            Text(L("例：", "e.g. ") + definition.example).foregroundStyle(Theme.secondary.color).italic()
-                                        }
-                                    }
-                                    .textSelection(.enabled)
-                                }
-                            }
-                        }
-                        .card()
-                    }
+            if lookup.kind == .word { EnglishDefinitions(meanings: lookup.meanings) }
+        }
+    }
+}
+
+struct TranslationView: View {
+    let store: Store
+    let lookup: Lookup
+    let translation: Load<Translation>
+
+    var body: some View {
+        switch translation {
+        case .loading: Progress(text: L("翻译中…", "Translating…"))
+        case .failed(let message): NoteView(note: Note(text: message, isError: true))
+        case .done(let translation):
+            VStack(alignment: .leading, spacing: 6) {
+                RouteTag(route: translation.route)
+                if let fallback = translation.fallback { Text(fallback).font(.caption).foregroundStyle(Theme.secondary.color).textSelection(.enabled) }
+                if translation.candidates.isEmpty {
+                    NoteView(note: Note(text: L("未找到翻译", "No translation found"), isError: true))
+                } else if lookup.kind == .paragraph {
+                    Text(translation.candidates[0]).font(.title3).lineSpacing(5).textSelection(.enabled)
+                } else {
+                    Numbered(items: translation.candidates)
+                }
+                if translation.route == Translator.free && TextTools.isSentence(lookup.text) { FreeHint(store: store) }
+                if !translation.senses.isEmpty {
+                    Heading(text: L("释义", "Senses"))
+                    Numbered(items: translation.senses)
                 }
             }
         }
     }
 }
 
-struct PhoneticView: View {
+struct EntryView: View {
     let search: Search
-    let phonetic: Load<Phonetic?>
+    let word: String
+    let entry: Load<DictEntry?>
 
     var body: some View {
-        switch phonetic {
-        case .loading: EmptyView()
-        case .failed(let message): NoteView(note: Note(text: L("音标暂不可用", "Phonetic unavailable") + " (\(message))"))
-        case .done(nil): NoteView(note: Note(text: L("音标暂不可用（未找到）", "Phonetic unavailable (not found)")))
-        case .done(let value?):
-            HStack(spacing: 10) {
-                if let ipa = value.ipa { Text(ipa).foregroundStyle(Theme.secondary.color).textSelection(.enabled) }
-                if let audio = value.audio {
-                    Button { search.play(audio) } label: { Label(L("发音", "Play"), systemImage: "speaker.wave.2") }
-                        .buttonStyle(PillButtonStyle(prominent: false, small: true))
+        switch entry {
+        case .loading: Progress(text: L("词典加载中…", "Loading dictionary…"))
+        case .failed(let message): NoteView(note: Note(text: L("词典数据暂不可用", "Dictionary data unavailable") + " (\(message))", isError: true))
+        case .done(nil): EmptyView()
+        case .done(let entry?):
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 14) {
+                    if let uk = entry.uk { phone(L("英", "UK"), uk, american: false) }
+                    if let us = entry.us { phone(L("美", "US"), us, american: true) }
+                    if let pinyin = entry.pinyin { Text("[\(pinyin)]").foregroundStyle(Theme.secondary.color).textSelection(.enabled) }
+                }
+                Text(L("简明释义", "Concise senses")).font(.caption).foregroundStyle(Theme.secondary.color)
+                ForEach(entry.senses, id: \.self) { sense in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        if !sense.label.isEmpty {
+                            Text(sense.label).font(.callout.weight(.semibold)).foregroundStyle(Theme.accent.color).frame(minWidth: 34, alignment: .leading)
+                        }
+                        Text(sense.text).lineSpacing(3).textSelection(.enabled)
+                    }
+                }
+                if !entry.web.isEmpty {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(L("网络释义", "Web")).font(.caption).foregroundStyle(Theme.secondary.color)
+                        Text(entry.web.joined(separator: "；")).font(.callout).foregroundStyle(Theme.secondary.color).textSelection(.enabled)
+                    }
                 }
             }
         }
+    }
+
+    private func phone(_ region: String, _ ipa: String, american: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(region).font(.callout).foregroundStyle(Theme.secondary.color)
+            Text("[\(ipa)]").textSelection(.enabled)
+            Button { search.play(Youdao.audio(word, american: american)) } label: {
+                Image(systemName: "speaker.wave.2.fill").foregroundStyle(Theme.accent.color)
+            }
+            .buttonStyle(.plain)
+            .help(L("发音", "Play"))
+            .accessibilityLabel(region + " " + L("发音", "Play"))
+        }
+    }
+}
+
+struct EnglishDefinitions: View {
+    let meanings: Load<[Meaning]?>
+    @State private var expanded = false
+
+    var body: some View {
+        DisclosureGroup(isExpanded: $expanded) {
+            VStack(alignment: .leading, spacing: 12) {
+                switch meanings {
+                case .loading: Progress(text: L("词典加载中…", "Loading dictionary…"))
+                case .failed(let message): NoteView(note: Note(text: L("英英释义暂不可用", "English definitions unavailable") + " (\(message))", isError: true))
+                case .done(nil): NoteView(note: Note(text: L("没有英英释义", "No English definitions found")))
+                case .done(let meanings?):
+                    ForEach(meanings, id: \.self) { meaning in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(EnglishDefinitions.abbreviation(meaning.partOfSpeech))
+                                .font(.callout.weight(.semibold))
+                                .foregroundStyle(Theme.accent.color)
+                                .frame(minWidth: 40, alignment: .leading)
+                            VStack(alignment: .leading, spacing: 5) {
+                                ForEach(Array(meaning.definitions.enumerated()), id: \.offset) { index, definition in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("\(index + 1). ").foregroundStyle(Theme.secondary.color).monospacedDigit() + Text(definition.text)
+                                        if !definition.example.isEmpty {
+                                            Text(L("例：", "e.g. ") + definition.example).font(.callout).foregroundStyle(Theme.secondary.color).italic().padding(.leading, 16)
+                                        }
+                                    }
+                                    .textSelection(.enabled)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.top, 8)
+        } label: {
+            Text(L("英英释义", "English definitions")).font(.system(.headline, design: .serif))
+        }
+        .card()
+    }
+
+    static func abbreviation(_ partOfSpeech: String) -> String {
+        ["noun": "n.", "verb": "v.", "adjective": "adj.", "adverb": "adv.", "interjection": "interj.", "preposition": "prep.", "conjunction": "conj.", "pronoun": "pron."][partOfSpeech.lowercased()] ?? partOfSpeech
     }
 }
 
@@ -289,21 +560,12 @@ struct ScreenshotPage: View {
     }
 }
 
-struct ListsPage: View {
+struct FavouritesPage: View {
     @ObservedObject var store: Store
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Heading(text: L("历史", "History"))
-                Spacer()
-                Button(L("清空历史", "Clear history")) { store.history = [] }.buttonStyle(PillButtonStyle(prominent: false, small: true))
-            }
-            Chips(store: store, items: store.history)
-        }
-        .card()
-        VStack(alignment: .leading, spacing: 10) {
-            Heading(text: L("收藏", "Favourites"))
+            Text(L("点结果旁的星标收藏", "Star a result to add it here")).font(.caption).foregroundStyle(Theme.secondary.color)
             Chips(store: store, items: store.favourites)
         }
         .card()
@@ -332,7 +594,7 @@ struct SettingsView: View {
     @State private var tab = 0
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(alignment: .leading, spacing: 14) {
             Pills(selection: $tab, options: [(0, L("快捷键", "Shortcuts")), (1, L("语言", "Language")), (2, L("系统", "System")), (3, "API")])
             VStack(alignment: .leading, spacing: 12) {
                 switch tab {
@@ -343,11 +605,7 @@ struct SettingsView: View {
                 }
             }
             .card()
-            Spacer(minLength: 0)
         }
-        .padding(16)
-        .frame(width: 500, height: 400)
-        .themed()
     }
 
     private func row<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
@@ -394,18 +652,25 @@ struct SettingsView: View {
 
     private var api: some View {
         Group {
-            Text(L("三项都填写时使用这个 API（OpenAI 兼容格式），否则使用免费翻译。", "When all three are filled, this OpenAI-compatible API is used; otherwise the free route."))
+            Text(L("短词和短语先查有道词典；有道查不到的内容和较长的文本先用 DeepSeek，失败时改用 OpenAI；两个都没有密钥时使用免费翻译。地址和模型留空时使用灰色的默认值。", "Words and short phrases use the Youdao dictionary first. Anything Youdao cannot answer and longer text uses DeepSeek, then OpenAI if DeepSeek fails; without any key, the free route is used. An empty base URL or model uses the grey default."))
                 .foregroundStyle(Theme.secondary.color)
                 .fixedSize(horizontal: false, vertical: true)
-            field(L("API 地址", "Base URL"), TextField("", text: $store.settings.base, prompt: Text("https://api.openai.com/v1")))
-            field(L("API 密钥", "Key"), SecureField("", text: $store.settings.key))
-            field(L("模型", "Model"), TextField("", text: $store.settings.model, prompt: Text("gpt-4o-mini")))
-            HStack {
-                Button(L("保存", "Save")) { store.saveSettings() }.buttonStyle(PillButtonStyle(small: true))
-                Button(L("测试", "Test")) { store.testSettings() }.buttonStyle(PillButtonStyle(prominent: false, small: true))
-                Button(L("清除", "Clear")) { store.clearSettings() }.buttonStyle(PillButtonStyle(prominent: false, small: true))
+            ForEach(store.apis.indices, id: \.self) { index in
+                let provider = store.apis[index].provider
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(provider.name).font(.system(.headline, design: .serif))
+                    field(L("API 密钥", "Key"), SecureField("", text: $store.apis[index].key))
+                    field(L("API 地址", "Base URL"), TextField("", text: $store.apis[index].base, prompt: Text(provider.defaultBase)))
+                    field(L("模型", "Model"), TextField("", text: $store.apis[index].model, prompt: Text(provider.defaultModel)))
+                    HStack {
+                        Button(L("测试", "Test")) { store.testSettings(provider) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
+                        Button(L("清除", "Clear")) { store.clearSettings(provider) }.buttonStyle(PillButtonStyle(prominent: false, small: true))
+                    }
+                    if let note = store.apiNotes[provider] { NoteView(note: note) }
+                }
+                .padding(.top, 6)
             }
-            if let note = store.settingsNote { NoteView(note: note) }
+            Button(L("保存", "Save")) { store.saveSettings() }.buttonStyle(PillButtonStyle(small: true))
         }
     }
 

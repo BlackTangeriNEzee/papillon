@@ -19,20 +19,31 @@ The certificate is self-signed, so the first time Gatekeeper may block the app: 
 
 ## Using it
 
-Type a word, phrase or paragraph and press Enter (or click Translate).
+The window has a sidebar with 查词 Lookup, 截图翻译 Screenshot, 收藏 Favourites and 设置 Settings.
+On the Lookup page, type a word, phrase or paragraph and press Enter (or click the round arrow button).
 Shift+Enter adds a new line.
-A single English word shows up to 5 candidate translations, phonetics with audio, and up to 5 definitions per part of speech with examples.
-A short phrase (up to 6 words, under 60 characters, one line) shows up to 5 candidate translations.
-Anything longer is translated as a whole paragraph, keeping line breaks.
-Every result shows which route was used: "Free" or "API".
+Before a search, the page shows the three shortcuts and up to 10 favourites.
+When the input is focused and empty, a list of the last 10 lookups drops down under it; typing filters the list, clicking a row searches it again, "清空 Clear" empties the history, and Esc or a click elsewhere hides it.
+Deleting all the text clears the result at once.
 
-The History tab keeps the last 20 lookups and your favourites (the star next to a result).
+How a lookup is answered:
+
+- One line under 60 characters (a word or a short phrase, English or Chinese) is looked up in the Youdao dictionary first.
+  If Youdao has an entry, the result shows it: UK and US phonetics with play buttons (pinyin for Chinese), the concise senses with the part of speech (n., v., adj. and so on) in front of each line, and a row of web translations.
+  For a single English word, the Wiktionary "English definitions" are below, collapsed.
+- If Youdao has no entry, and for longer or multi-line text, the text is translated with the API (DeepSeek first, then OpenAI, see Settings), or with the free MyMemory route when no API key is saved.
+  A short phrase shows up to 5 candidate translations, longer text one translation that keeps line breaks.
+
+Every result shows which source answered: "Youdao", "DeepSeek · model", "OpenAI · model" or "Free".
+When DeepSeek fails and OpenAI answers instead, a small note says why.
+
 Closing the window keeps the app running (this can be changed in Settings); click the Dock icon or press Option+Space to bring it back.
 
 ## Menu bar
 
 Left-click the menu bar icon to open a small quick-translate popover under it.
-Type in the box and press Enter (Shift+Enter adds a new line); the result appears in the popover with the same routing as the main window: a word shows candidate translations and up to 5 definitions per part of speech, a phrase shows candidate translations, and a paragraph shows its translation.
+Type in the box and press Enter (Shift+Enter adds a new line); the result appears in the popover, answered the same way as in the main window.
+The popover has the same history list under the input, and deleting the text clears the result.
 "在主窗口打开 Open in main window" opens the main window with the same text searched.
 Click outside the popover, press Esc, or click the icon again to close it.
 Right-click the menu bar icon for the menu with Open, Screenshot translate, Settings and Quit.
@@ -66,7 +77,7 @@ The first time, macOS asks for Screen Recording permission for Mini Dict; turn i
 Until then, a pinned message explains this instead of capturing.
 Because every build is signed with the same certificate, the Screen Recording permission survives rebuilds.
 
-The main window's Screenshot tab is for images you already have: paste an image with Cmd+V or drop one onto the window, edit the recognised text, and translate it.
+The main window's 截图翻译 Screenshot page is for images you already have: paste an image with Cmd+V or drop one onto the window, edit the recognised text, and translate it.
 
 ## Services menu
 
@@ -76,19 +87,22 @@ If it does not show up right after the first launch, log out and in again, or ru
 
 ## Settings
 
-Open Settings with Cmd+, or from the menu bar icon.
+Open Settings with Cmd+, from the menu bar icon, or from the sidebar; it is a page in the main window.
 
 - Shortcuts: record a new key combination for each of the three shortcuts; a combination must include Command, Option or Control.
 - Language: interface language, 中文 (Simplified Chinese), English, or follow the system.
 - System: launch at login, show the menu bar icon, keep running when the window closes.
-- API: base URL, key and model for any OpenAI-compatible chat completions API, with Save, Test and Clear.
-  When all three are filled, translations use that API and ask it for natural, idiomatic wording; otherwise the free route is used.
-  API errors are shown with their HTTP status; the app does not fall back to the free route.
-  Settings, including the key, are stored in the app's preferences (`defaults read local.mini-dict`).
+- API: two OpenAI-compatible chat completions APIs, DeepSeek (default base URL `https://api.deepseek.com/v1`, model `deepseek-chat`) and OpenAI (default `https://api.openai.com/v1`, `gpt-4o-mini`).
+  Each has a key, a base URL and a model; an empty base URL or model uses the default shown in grey.
+  A provider is used when its key is filled; each has its own Test and Clear buttons, and Save stores both and tests every provider that has a key.
+  Text that Youdao does not answer goes to DeepSeek first; on any error it goes to OpenAI; if both fail, both errors are shown; with no key at all, the free route is used.
+  The API is asked for natural, idiomatic wording.
+  Settings, including the keys, are stored in the app's preferences (`defaults read local.mini-dict`); the older single API setting is moved into the OpenAI group once.
 
 ## Data sources
 
+- Dictionary senses, phonetics, web translations and audio: Youdao dictionary, an unofficial public endpoint, https://dict.youdao.com/jsonapi and https://dict.youdao.com/dictvoice (no key).
 - Free translation: MyMemory, https://api.mymemory.translated.net (free, no key, a daily limit; long text is sent in pieces of up to 450 characters).
-- Definitions and examples: Wiktionary REST API, https://en.wiktionary.org/api/rest_v1/page/definition/.
-- Phonetics and audio: Free Dictionary API, https://dictionaryapi.dev (6 second timeout; when it fails, the definitions still show).
+- English definitions and examples: Wiktionary REST API, https://en.wiktionary.org/api/rest_v1/page/definition/.
+- API translation: DeepSeek and OpenAI chat completions, with your own keys.
 - Text recognition: Apple Vision framework, on the device.

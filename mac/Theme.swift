@@ -81,11 +81,11 @@ extension View {
             .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Theme.border.color))
     }
 
-    func themed() -> some View {
+    func themed(background: Bool = true) -> some View {
         self
             .foregroundStyle(Theme.text.color)
             .tint(Theme.accent.color)
             .focusEffectDisabled()
-            .background(Theme.background.color)
+            .background(background ? Theme.background.color : Color.clear)
     }
 }

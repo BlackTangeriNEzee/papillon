@@ -26,11 +26,13 @@ struct Translation {
     let route: String
     let candidates: [String]
     let senses: [String]
+    var fallback: String?
 }
 
 struct Translated {
     let route: String
     let text: String
+    var fallback: String?
 }
 
 struct Definition: Hashable {
@@ -43,41 +45,73 @@ struct Meaning: Hashable {
     let definitions: [Definition]
 }
 
-struct Phonetic {
-    let ipa: String?
-    let audio: URL?
+struct Sense: Hashable {
+    let label: String
+    let text: String
+}
+
+struct DictEntry {
+    let uk: String?
+    let us: String?
+    let pinyin: String?
+    let senses: [Sense]
+    let web: [String]
+}
+
+struct Provider: Hashable {
+    let name: String
+    let prefix: String
+    let defaultBase: String
+    let defaultModel: String
+
+    static let deepseek = Provider(name: "DeepSeek", prefix: "deepseek", defaultBase: "https://api.deepseek.com/v1", defaultModel: "deepseek-chat")
+    static let openai = Provider(name: "OpenAI", prefix: "openai", defaultBase: "https://api.openai.com/v1", defaultModel: "gpt-4o-mini")
+    static let all = [deepseek, openai]
 }
 
 struct APISettings {
+    let provider: Provider
     var base = ""
     var key = ""
     var model = ""
 
-    static func stored() -> APISettings {
+    static func migrate() {
         let defaults = UserDefaults.standard
-        return APISettings(base: defaults.string(forKey: "apiBase") ?? "", key: defaults.string(forKey: "apiKey") ?? "", model: defaults.string(forKey: "apiModel") ?? "")
+        let old = ["apiBase": "openaiBase", "apiKey": "openaiKey", "apiModel": "openaiModel"]
+        for (from, to) in old {
+            if let value = defaults.string(forKey: from), defaults.string(forKey: to) == nil { defaults.set(value, forKey: to) }
+            defaults.removeObject(forKey: from)
+        }
     }
 
-    static func active() -> APISettings? {
-        let settings = stored()
-        return settings.base.isEmpty || settings.key.isEmpty || settings.model.isEmpty ? nil : settings
+    static func stored(_ provider: Provider) -> APISettings {
+        let defaults = UserDefaults.standard
+        return APISettings(provider: provider, base: defaults.string(forKey: provider.prefix + "Base") ?? "", key: defaults.string(forKey: provider.prefix + "Key") ?? "", model: defaults.string(forKey: provider.prefix + "Model") ?? "")
     }
+
+    static func active() -> [APISettings] {
+        Provider.all.compactMap { stored($0).effective }
+    }
+
+    var trimmed: APISettings {
+        APISettings(provider: provider, base: base.trimmingCharacters(in: .whitespacesAndNewlines), key: key.trimmingCharacters(in: .whitespacesAndNewlines), model: model.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    var effective: APISettings? {
+        key.isEmpty ? nil : APISettings(provider: provider, base: base.isEmpty ? provider.defaultBase : base, key: key, model: model.isEmpty ? provider.defaultModel : model)
+    }
+
+    var route: String { "\(provider.name) · \(model)" }
 
     func save() {
         let defaults = UserDefaults.standard
-        defaults.set(base, forKey: "apiBase")
-        defaults.set(key, forKey: "apiKey")
-        defaults.set(model, forKey: "apiModel")
+        defaults.set(base, forKey: provider.prefix + "Base")
+        defaults.set(key, forKey: provider.prefix + "Key")
+        defaults.set(model, forKey: provider.prefix + "Model")
     }
 }
 
 enum Net {
-    static let phoneticSession: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForResource = 6
-        return URLSession(configuration: configuration)
-    }()
-
     static func encode(_ text: String) -> String {
         text.addingPercentEncoding(withAllowedCharacters: CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~"))!
     }
@@ -161,16 +195,37 @@ enum Translator {
         "You are a professional translator. Translate the user's text into natural, idiomatic \(toEnglish ? "English" : "Simplified Chinese") that a native speaker would write, keeping the meaning, tone and register. Never translate word for word and never add explanations."
     }
 
+    static func withAPIs<T>(_ work: (APISettings) async throws -> T) async throws -> (value: T, api: APISettings, fallback: String?)? {
+        let apis = APISettings.active()
+        guard !apis.isEmpty else { return nil }
+        var errors: [String] = []
+        for api in apis {
+            do {
+                let value = try await work(api)
+                let fallback = errors.isEmpty ? nil : L("\(apis[0].provider.name) 失败，已改用 \(api.provider.name)", "\(apis[0].provider.name) failed, used \(api.provider.name)") + " (" + errors.joined(separator: "; ") + ")"
+                return (value, api, fallback)
+            } catch {
+                errors.append("\(api.provider.name): \(error.localizedDescription)")
+            }
+        }
+        throw Failure(errors.joined(separator: "; "))
+    }
+
     static func search(_ text: String, isWord: Bool) async throws -> Translation {
         let toEnglish = TextTools.isCJK(text)
-        if let api = APISettings.active() {
+        let answered = try await withAPIs { api in
             let sensesRule = isWord ? ", \"senses\": [up to 5 main senses of this English word, each a short, natural one-line explanation in Simplified Chinese]" : ""
             let content = try await callApi(api, system: "\(translator(toEnglish)) Reply with JSON only, no code fences, in this shape: {\"translations\": [up to 5 distinct candidate translations, ordered from the most common everyday rendering to rarer ones]\(sensesRule)}", text: text)
             guard let reply = Net.json(Data(content.replacing(TextTools.fence, with: "").utf8)) as? [String: Any], let translations = reply["translations"] as? [Any] else {
                 throw Failure(L("API 返回格式不对：", "Unexpected API reply: ") + content.prefix(300))
             }
             let senses = reply["senses"] as? [Any] ?? []
-            return Translation(route: "API", candidates: translations.prefix(5).map { "\($0)" }, senses: senses.prefix(5).map { "\($0)" })
+            return Translation(route: api.route, candidates: translations.prefix(5).map { "\($0)" }, senses: senses.prefix(5).map { "\($0)" })
+        }
+        if let answered {
+            var translation = answered.value
+            translation.fallback = answered.fallback
+            return translation
         }
         let reply = try await myMemory(text, toEnglish: toEnglish)
         let matches = (reply["matches"] as? [[String: Any]] ?? []).filter { TextTools.norm($0["segment"] as? String ?? "") == TextTools.norm(text) }
@@ -187,8 +242,8 @@ enum Translator {
 
     static func text(_ text: String) async throws -> Translated {
         let toEnglish = TextTools.isCJK(text)
-        if let api = APISettings.active() {
-            return Translated(route: "API", text: try await callApi(api, system: "\(translator(toEnglish)) Keep the paragraph breaks. Reply with the translation only.", text: text))
+        if let answered = try await withAPIs({ api in try await callApi(api, system: "\(translator(toEnglish)) Keep the paragraph breaks. Reply with the translation only.", text: text) }) {
+            return Translated(route: answered.api.route, text: answered.value, fallback: answered.fallback)
         }
         return Translated(route: free, text: try await freeText(text, toEnglish: toEnglish))
     }
@@ -237,7 +292,7 @@ enum Translator {
         let reply = Net.json(data) as? [String: Any]
         guard (200..<300).contains(status) else {
             let message = (reply?["error"] as? [String: Any])?["message"] as? String ?? String(body.prefix(300))
-            throw Failure(L("API 错误：", "API error: ") + "HTTP \(status) \(message)")
+            throw Failure("HTTP \(status) \(message)")
         }
         guard let content = ((reply?["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String else {
             throw Failure(L("API 返回格式不对：", "Unexpected API response: ") + body.prefix(300))
@@ -282,17 +337,40 @@ enum WordSources {
             return Meaning(partOfSpeech: partOfSpeech, definitions: definitions)
         }
     }
+}
 
-    static func phonetic(_ word: String) async throws -> Phonetic? {
-        let url = URL(string: "https://api.dictionaryapi.dev/api/v2/entries/en/\(Net.encode(word))")!
-        let (data, status) = try await Net.fetch(URLRequest(url: url), session: Net.phoneticSession)
-        if status == 404 { return nil }
+enum Youdao {
+    static func audio(_ word: String, american: Bool) -> URL {
+        URL(string: "https://dict.youdao.com/dictvoice?audio=\(Net.encode(word))&type=\(american ? 2 : 1)")!
+    }
+
+    static func lookup(_ text: String) async throws -> DictEntry? {
+        let chinese = TextTools.isCJK(text)
+        let dict = chinese ? "ce" : "ec"
+        var request = URLRequest(url: URL(string: "https://dict.youdao.com/jsonapi?q=\(Net.encode(text))&dicts=\(Net.encode("{\"count\":99,\"dicts\":[[\"\(dict)\",\"web_trans\"]]}"))")!)
+        request.setValue("Mozilla/5.0", forHTTPHeaderField: "User-Agent")
+        let (data, status) = try await Net.fetch(request)
         guard (200..<300).contains(status) else { throw Failure("HTTP \(status)") }
-        guard let entries = Net.json(data) as? [[String: Any]] else { throw Failure(L("返回格式不对", "unexpected reply")) }
-        let phonetics = entries.flatMap { $0["phonetics"] as? [[String: Any]] ?? [] }
-        let ipa = entries.compactMap { $0["phonetic"] as? String }.first { !$0.isEmpty } ?? phonetics.compactMap { $0["text"] as? String }.first { !$0.isEmpty }
-        let audio = phonetics.compactMap { $0["audio"] as? String }.first { !$0.isEmpty }.flatMap { URL(string: $0) }
-        return Phonetic(ipa: ipa, audio: audio)
+        guard let reply = Net.json(data) as? [String: Any] else { throw Failure(L("返回格式不对", "unexpected reply")) }
+        guard let section = reply[dict] as? [String: Any] else { return nil }
+        guard let word = (section["word"] as? [[String: Any]])?.first else { throw Failure(L("返回格式不对", "unexpected reply")) }
+        let lines = (word["trs"] as? [[String: Any]] ?? []).compactMap { item -> Any? in
+            (((item["tr"] as? [[String: Any]])?.first?["l"] as? [String: Any])?["i"])
+        }
+        let senses: [Sense] = lines.compactMap { line in
+            if chinese {
+                let parts = (line as? [Any] ?? []).map { ($0 as? String) ?? (($0 as? [String: Any])?["#text"] as? String) ?? "" }
+                let text = parts.joined().trimmingCharacters(in: .whitespaces)
+                return text.isEmpty ? nil : Sense(label: "", text: text)
+            }
+            guard let text = (line as? [Any])?.first as? String, !text.isEmpty else { return nil }
+            let pieces = text.split(separator: " ", maxSplits: 1)
+            return pieces.count == 2 && pieces[0].hasSuffix(".") ? Sense(label: String(pieces[0]), text: String(pieces[1])) : Sense(label: "", text: text)
+        }
+        guard !senses.isEmpty else { return nil }
+        func phone(_ key: String) -> String? { (word[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
+        let web = (((reply["web_trans"] as? [String: Any])?["web-translation"] as? [[String: Any]])?.first?["trans"] as? [[String: Any]] ?? []).compactMap { $0["value"] as? String }
+        return DictEntry(uk: phone("ukphone"), us: phone("usphone"), pinyin: phone("phone"), senses: senses, web: Array(web.prefix(5)))
     }
 }
 

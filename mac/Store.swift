@@ -3,8 +3,8 @@ import AppKit
 import Carbon.HIToolbox
 import ServiceManagement
 
-enum Page: Hashable {
-    case lookup, screenshot, lists
+enum Page: Hashable, CaseIterable {
+    case lookup, screenshot, favourites, settings
 }
 
 enum Load<Value> {
@@ -22,9 +22,13 @@ struct Lookup {
     let id = UUID()
     let text: String
     let kind: Kind
-    var translation: Load<Translation> = .loading
-    var phonetic: Load<Phonetic?> = .loading
+    var translation: Load<Translation>?
+    var entry: Load<DictEntry?>?
     var meanings: Load<[Meaning]?> = .loading
+
+    var usesDictionary: Bool {
+        text.count < 60 && !text.contains(where: \.isNewline)
+    }
 }
 
 struct Shortcut: Codable, Equatable {
@@ -78,15 +82,23 @@ func flag(_ key: String) -> Bool {
 
 @MainActor
 final class Search: ObservableObject {
-    @Published var query = ""
+    @Published var query = "" {
+        didSet {
+            guard query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            lookup = nil
+            note = nil
+        }
+    }
     @Published var note: Note?
     @Published var lookup: Lookup?
     @Published var focusRequest = 0
+    @Published var historyOpen = false
     var onSearch: (String) -> Void = { _ in }
     private var player: AVPlayer?
     private var playerStatus: NSKeyValueObservation?
 
     func run(_ raw: String) {
+        historyOpen = false
         let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         query = text
         guard !text.isEmpty else {
@@ -97,23 +109,33 @@ final class Search: ObservableObject {
         note = nil
         onSearch(text)
         let kind = TextTools.kind(text)
-        let current = Lookup(text: text, kind: kind)
+        var current = Lookup(text: text, kind: kind)
+        let dictionary = current.usesDictionary
+        if dictionary { current.entry = .loading } else { current.translation = .loading }
         lookup = current
-        Task {
-            let result = await load {
-                if kind == .paragraph {
-                    let translated = try await Translator.text(text)
-                    return Translation(route: translated.route, candidates: [translated.text], senses: [])
-                }
-                return try await Translator.search(text, isWord: kind == .word)
+        if dictionary {
+            Task {
+                let entry = await load { try await WordSources.withLowercase(text, Youdao.lookup) }
+                guard lookup?.id == current.id else { return }
+                lookup?.entry = entry
+                if case .done(.some) = entry { return }
+                lookup?.translation = .loading
+                let result = await load { try await Translator.search(text, isWord: kind == .word) }
+                if lookup?.id == current.id { lookup?.translation = result }
             }
-            if lookup?.id == current.id { lookup?.translation = result }
+        } else {
+            Task {
+                let result = await load {
+                    if kind == .paragraph {
+                        let translated = try await Translator.text(text)
+                        return Translation(route: translated.route, candidates: [translated.text], senses: [], fallback: translated.fallback)
+                    }
+                    return try await Translator.search(text, isWord: false)
+                }
+                if lookup?.id == current.id { lookup?.translation = result }
+            }
         }
         guard kind == .word else { return }
-        Task {
-            let result = await load { try await WordSources.withLowercase(text, WordSources.phonetic) }
-            if lookup?.id == current.id { lookup?.phonetic = result }
-        }
         Task {
             let result = await load { try await WordSources.withLowercase(text, WordSources.meanings) }
             if lookup?.id == current.id { lookup?.meanings = result }
@@ -134,7 +156,13 @@ final class Search: ObservableObject {
 
 @MainActor
 final class Store: ObservableObject {
-    @Published var page = Page.lookup
+    @Published var page = Page.lookup {
+        didSet {
+            guard page != .settings, recording != nil else { return }
+            stopRecording()
+            applyShortcuts()
+        }
+    }
     @Published var history = UserDefaults.standard.stringArray(forKey: "history") ?? [] {
         didSet { UserDefaults.standard.set(history, forKey: "history") }
     }
@@ -145,8 +173,11 @@ final class Store: ObservableObject {
     @Published var ocrText = ""
     @Published var ocrNote: Note?
     @Published var ocrResult: Load<Translated>?
-    @Published var settings = APISettings.stored()
-    @Published var settingsNote: Note?
+    @Published var apis: [APISettings] = {
+        APISettings.migrate()
+        return Provider.all.map(APISettings.stored)
+    }()
+    @Published var apiNotes: [Provider: Note] = [:]
     @Published var uiLanguage = UILanguage(rawValue: UserDefaults.standard.string(forKey: "uiLanguage") ?? "") ?? .system {
         didSet {
             UserDefaults.standard.set(uiLanguage.rawValue, forKey: "uiLanguage")
@@ -235,35 +266,38 @@ final class Store: ObservableObject {
         Task { ocrResult = await load { try await Translator.text(text) } }
     }
 
-    private var trimmedSettings: APISettings {
-        APISettings(base: settings.base.trimmingCharacters(in: .whitespacesAndNewlines), key: settings.key.trimmingCharacters(in: .whitespacesAndNewlines), model: settings.model.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
     func saveSettings() {
-        settings = trimmedSettings
-        settings.save()
-        settingsNote = Note(text: APISettings.active() == nil ? L("已保存，但未填全，将使用免费翻译", "Saved, but not all fields are filled, so the free route is used") : L("已保存，将使用 API", "Saved, the API will be used"))
+        apis = apis.map(\.trimmed)
+        apis.forEach { $0.save() }
+        for api in apis {
+            if let effective = api.effective {
+                testSettings(api.provider, saved: L("已保存，将使用 ", "Saved, using ") + effective.base + L("，模型 ", ", model ") + effective.model)
+            } else {
+                apiNotes[api.provider] = Note(text: L("已保存，没有密钥，不使用", "Saved without a key, not used"))
+            }
+        }
     }
 
-    func clearSettings() {
-        settings = APISettings()
-        settings.save()
-        settingsNote = Note(text: L("已清除，将使用免费翻译", "Cleared, the free route is used"))
+    func clearSettings(_ provider: Provider) {
+        guard let index = apis.firstIndex(where: { $0.provider == provider }) else { return }
+        apis[index] = APISettings(provider: provider)
+        apis[index].save()
+        apiNotes[provider] = Note(text: L("已清除", "Cleared"))
     }
 
-    func testSettings() {
-        let api = trimmedSettings
-        guard !api.base.isEmpty, !api.key.isEmpty, !api.model.isEmpty else {
-            settingsNote = Note(text: L("请先填写三项", "Fill in all three fields first"), isError: true)
+    func testSettings(_ provider: Provider, saved: String? = nil) {
+        guard let api = apis.first(where: { $0.provider == provider })?.trimmed.effective else {
+            apiNotes[provider] = Note(text: L("请先填写 API 密钥", "Fill in the API key first"), isError: true)
             return
         }
-        settingsNote = Note(text: L("测试中…", "Testing…"))
+        let prefix = saved.map { $0 + "\n" } ?? ""
+        apiNotes[provider] = Note(text: prefix + L("测试中…", "Testing…"))
         Task {
             do {
                 let reply = try await Translator.callApi(api, system: "Translate the user's text into Simplified Chinese. Reply with the translation only.", text: "hello")
-                settingsNote = Note(text: L("测试成功：", "Test passed: ") + reply)
+                apiNotes[provider] = Note(text: prefix + L("测试成功：", "Test passed: ") + reply)
             } catch {
-                settingsNote = Note(text: error.localizedDescription, isError: true)
+                apiNotes[provider] = Note(text: prefix + L("测试失败：", "Test failed: ") + error.localizedDescription, isError: true)
             }
         }
     }
