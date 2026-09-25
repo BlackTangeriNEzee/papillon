@@ -200,7 +200,7 @@ struct MainView: View {
     private var sidebar: some View {
         VStack(alignment: .leading, spacing: 2) {
             if !compact {
-                Text(L("招财词典", "Zhaocai Dict")).font(.caption.weight(.semibold)).foregroundStyle(Theme.secondary.color).padding(.horizontal, 8).padding(.bottom, 4)
+                Text(L("蝶笺", "Papillon")).font(.caption.weight(.semibold)).foregroundStyle(Theme.secondary.color).padding(.horizontal, 8).padding(.bottom, 4)
             }
             ForEach(MainView.sections, id: \.page) { section in
                 if section.page == .documents {
@@ -559,6 +559,7 @@ struct QuickView: View {
         VStack(alignment: .leading, spacing: 12) {
             SearchInput(store: store, search: search, placeholder: L("输入要翻译的内容", "Type to translate"), onDropdown: { dropdownHeight = $0; report() }) { search.run(search.query) }
                 .onGeometryChange(for: CGFloat.self, of: { $0.size.height }, action: { inputHeight = $0 })
+                .zIndex(1)
             if hasResult {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 10) {

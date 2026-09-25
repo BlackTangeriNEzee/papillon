@@ -6,8 +6,12 @@ guard let photo = NSImage(contentsOf: root.appendingPathComponent("mac/icon-sour
     FileHandle.standardError.write("mac/icon-source.png could not be read\n".data(using: .utf8)!)
     exit(1)
 }
-let appCrop = photo.cropping(to: CGRect(x: 470, y: 20, width: 800, height: 800))!
-let faceCrop = photo.cropping(to: CGRect(x: 655, y: 255, width: 340, height: 340))!
+guard let menu = NSImage(contentsOf: root.appendingPathComponent("mac/menubar-source.png"))?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+    FileHandle.standardError.write("mac/menubar-source.png could not be read\n".data(using: .utf8)!)
+    exit(1)
+}
+let appCrop = photo.cropping(to: CGRect(x: 0, y: 0, width: 1254, height: 1254))!
+let faceCrop = menu.cropping(to: CGRect(x: 290, y: 220, width: 660, height: 660))!
 
 func squircle(_ rect: CGRect) -> CGPath {
     let path = CGMutablePath()

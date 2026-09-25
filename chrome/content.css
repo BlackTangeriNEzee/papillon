@@ -1,0 +1,5 @@
+#zhaocai-ui-host { all: initial !important; position: fixed !important; inset: 0 !important; z-index: 2147483647 !important; pointer-events: none !important; }
+.zhaocai-translation { display: block; margin: 4px 0 8px; padding-left: 10px; border-left: 4px solid #d97757; color: #6f6c64; font-size: inherit; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (prefers-color-scheme: dark) {
+  .zhaocai-translation { color: #b9b5ac; }
+}

@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="lib/theme.css">
+  <link rel="stylesheet" href="popup.css">
+  <title></title>
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="popup-header"><h1 id="app-title" class="serif"></h1><a id="settings" class="icon-button" href="#"></a></header>
+    <div class="search-area">
+      <div class="search-box"><span class="search-mark" aria-hidden="true">⌕</span><textarea id="query" rows="2"></textarea><button id="submit" class="submit" type="button" aria-label="Translate">↑</button></div>
+      <div id="history" class="history card" hidden></div>
+    </div>
+    <button id="translate-page" class="pill secondary small" type="button"></button>
+    <div id="status" aria-live="polite"></div>
+    <div id="result"></div>
+    <div id="meanings"></div>
+  </main>
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

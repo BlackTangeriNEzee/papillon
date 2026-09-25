@@ -1,4 +1,4 @@
-# 招财词典 Zhaocai Dict
+# 蝶笺 Papillon
 
 A small English-Chinese dictionary and translator for macOS, written in Swift with AppKit and SwiftUI.
 It has a normal window, a Dock icon and a menu bar icon.
@@ -14,7 +14,7 @@ sh mac/build.sh
 Run `sh mac/make-cert.sh` once per Mac: it creates a self-signed code signing certificate named "Mini Dict Signing" in your login keychain, and does nothing if it already exists.
 After that, `sh mac/build.sh` is all you need; it stops with a message if the certificate is missing.
 The scripts need only the Xcode Command Line Tools (`swiftc`).
-The app lands in `build/ZhaocaiDict.app`; open it with `open build/ZhaocaiDict.app` or copy it to `/Applications`.
+The app lands in `build/Papillon.app`; open it with `open build/Papillon.app` or copy it to `/Applications`.
 The certificate is self-signed, so the first time Gatekeeper may block the app: right-click the app, choose Open, then confirm.
 
 ## Using it
@@ -45,7 +45,7 @@ Closing the window keeps the app running (this can be changed in Settings); clic
 ## Select to translate
 
 Turn on "划词翻译 Select to translate" in Settings > System (or on the Lookup page).
-It needs Accessibility permission: macOS asks the first time; turn on 招财词典 (Zhaocai Dict) in System Settings > Privacy & Security > Accessibility.
+It needs Accessibility permission: macOS asks the first time; turn on 蝶笺 (Papillon) in System Settings > Privacy & Security > Accessibility.
 When you select text in another app, a small button appears next to the selection (or, with "自动显示 Show automatically", the translation right away); clicking it shows a small panel under the selection with the same result as the Lookup page and a link to open it in the main window.
 Clicking elsewhere, selecting something else, or Esc hides the panel; pinned screenshots still take Esc first.
 Apps that do not expose the selected text to Accessibility (some browsers and PDF viewers) work only with "剪贴板回退 Clipboard fallback" on, which copies the selection with Cmd+C and puts your clipboard back afterwards.
@@ -99,7 +99,7 @@ Several screenshots can be pinned at the same time, and you can drag them around
 While at least one screenshot is pinned, Esc closes all of them at once, whichever app is in front; that Esc press does nothing else.
 When nothing is pinned, Esc works as usual again.
 
-The first time, macOS asks for Screen Recording permission for 招财词典 (Zhaocai Dict); turn it on in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app.
+The first time, macOS asks for Screen Recording permission for 蝶笺 (Papillon); turn it on in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app.
 Until then, a pinned message explains this instead of capturing.
 Because every build is signed with the same certificate, the Screen Recording permission survives rebuilds.
 
@@ -107,7 +107,7 @@ The main window's 截图翻译 Screenshot page is for images you already have: p
 
 ## Services menu
 
-Select text in any app, then choose "用招财词典翻译 Translate with Zhaocai Dict" from the app menu > Services (or the right-click menu > Services).
+Select text in any app, then choose "用蝶笺翻译 Translate with Papillon" from the app menu > Services (or the right-click menu > Services).
 You can give it a keyboard shortcut in System Settings > Keyboard > Keyboard Shortcuts > Services.
 If it does not show up right after the first launch, log out and in again, or run `/System/Library/CoreServices/pbs -update`.
 
@@ -138,4 +138,10 @@ Open Settings with Cmd+, from the menu bar icon, or from the sidebar; it is a pa
 
 ## Icon
 
-The app icon and the menu bar icon are made from the user's own photo, `mac/icon-source.png`, by `mac/make-icon.swift` on every build: a square crop of the cat in the rounded-square icon shape, and a round crop of its face for the menu bar.
+The app icon and the menu bar icon are made from two illustrations by `mac/make-icon.swift` on every build: `mac/icon-source.png` for the app icon, and `mac/menubar-source.png` for the menu bar.
+
+## Chrome extension
+
+The `chrome/` folder contains a Chrome extension with the same lookup logic (Youdao dictionary, Wiktionary English definitions, user API providers, and Google and MyMemory fallback), a toolbar popup, a select-to-translate bubble on web pages, and a settings page; screenshot translation and document translation are not included.
+To load it, open `chrome://extensions`, turn on "开发者模式" (Developer mode), click "加载已解压的扩展程序" (Load unpacked), and choose the `chrome` folder.
+Alt+D (Option+D on Mac) translates the current selection; change the shortcut at `chrome://extensions/shortcuts`.

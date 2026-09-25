@@ -368,7 +368,7 @@ final class ScreenTranslator {
             CGRequestScreenCaptureAccess()
             let screen = NSScreen.screens.first { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) } ?? NSScreen.main ?? NSScreen.screens[0]
             let pin = Pin()
-            pin.note = Note(text: L("没有截图权限：请在“系统设置 > 隐私与安全性 > 屏幕与系统录音”中打开招财词典，然后重新打开本应用", "Screen Recording permission is missing: turn on Zhaocai Dict (招财词典) in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app"), isError: true)
+            pin.note = Note(text: L("没有截图权限：请在“系统设置 > 隐私与安全性 > 屏幕与系统录音”中打开蝶笺，然后重新打开本应用", "Screen Recording permission is missing: turn on Papillon (蝶笺) in System Settings > Privacy & Security > Screen & System Audio Recording, then reopen the app"), isError: true)
             show(pin, image: nil, topLeft: NSPoint(x: screen.visibleFrame.midX - 180, y: screen.visibleFrame.midY + 60), screen: screen)
             return
         }

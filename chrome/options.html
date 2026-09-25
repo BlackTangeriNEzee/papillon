@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="lib/theme.css">
+  <link rel="stylesheet" href="options.css">
+  <title></title>
+</head>
+<body>
+  <main class="settings-shell">
+    <header><h1 id="title" class="serif"></h1><p id="subtitle" class="note"></p></header>
+    <section class="card"><h2 id="language-title" class="serif"></h2><div id="language" class="pills"></div><p id="language-note" class="note"></p></section>
+    <section class="card"><h2 id="sources-title" class="serif"></h2><p id="sources-note" class="note"></p><div id="sources"></div><button id="reset-order" type="button" class="pill secondary small"></button></section>
+    <section class="card"><h2 id="providers-title" class="serif"></h2><div id="providers"></div><div class="actions"><button id="add-api" type="button" class="pill small"></button><button id="add-deepseek" type="button" class="pill secondary small">+ DeepSeek</button><button id="add-openai" type="button" class="pill secondary small">+ OpenAI</button></div></section>
+    <section class="card"><h2 id="selection-title" class="serif"></h2><label class="switch-row"><span id="select-label"></span><input id="select-button" type="checkbox" role="switch"></label><h3 id="disabled-title" class="serif"></h3><div id="disabled-sites"></div><form id="add-site" class="actions"><input id="site-input" type="text" autocomplete="off"><button id="add-site-button" type="submit" class="pill small"></button></form></section>
+    <section class="card"><h2 id="favourites-title" class="serif"></h2><div id="favourites"></div></section>
+  </main>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
