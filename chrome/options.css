@@ -20,6 +20,7 @@
 .provider-field label { font-weight: 500; }
 .provider-field input, .provider-field select, #site-input { width: 100%; min-width: 0; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--field); color: var(--text); }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+#import-status { margin: 8px 0 0; }
 .switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 input[type="checkbox"] { appearance: none; width: 36px; height: 20px; margin: 0; border: 0; border-radius: 999px; background: var(--border); cursor: pointer; }
 input[type="checkbox"]::before { content: ""; display: block; width: 16px; height: 16px; margin: 2px; border-radius: 50%; background: white; box-shadow: 0 1px 2px #0003; transition: transform .15s; }

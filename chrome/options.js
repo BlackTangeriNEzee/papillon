@@ -35,6 +35,23 @@ function normalizeSources() {
   state.sourceEnabled = Object.fromEntries(Object.entries(state.sourceEnabled).filter(([id]) => ids.includes(id)));
 }
 
+function mergeProviders(existing, incoming) {
+  if (!Array.isArray(incoming)) throw new Error('shape');
+  if (!incoming.length) throw new Error('empty');
+  const providers = [...existing];
+  for (const item of incoming) {
+    if (!item || typeof item !== 'object' || Array.isArray(item) ||
+        ['name', 'base', 'key', 'model'].some(field => typeof item[field] !== 'string') ||
+        (item.id !== undefined && typeof item.id !== 'string') ||
+        (item.format !== undefined && !['openai', 'anthropic', 'gemini'].includes(item.format))) throw new Error('shape');
+    const provider = { id: item.id || crypto.randomUUID(), name: item.name, base: item.base, key: item.key, model: item.model, format: item.format ?? 'openai' };
+    const index = providers.findIndex(current => current.id === provider.id);
+    if (index === -1) providers.push(provider);
+    else providers[index] = provider;
+  }
+  return { providers, count: incoming.length };
+}
+
 async function saveSources() {
   await set({ sourceOrder: state.sourceOrder, sourceEnabled: state.sourceEnabled });
 }
@@ -212,6 +229,8 @@ function labels() {
   byId('reset-order').textContent = L('恢复默认顺序', 'Reset order');
   byId('providers-title').textContent = L('API 服务', 'API providers');
   byId('add-api').textContent = L('添加 API', 'Add API');
+  byId('import-providers').textContent = L('导入 Mac 版设置', 'Import from the Mac app');
+  byId('export-providers').textContent = L('导出', 'Export');
   byId('selection-title').textContent = L('划词翻译', 'Select to translate');
   byId('select-label').textContent = L('显示划词按钮', 'Show selection button');
   byId('disabled-title').textContent = L('排除的网站', 'Excluded sites');
@@ -234,8 +253,56 @@ byId('select-button').checked = state.selectButton !== false;
 byId('select-button').addEventListener('change', event => { state.selectButton = event.target.checked; set({ selectButton: state.selectButton }); });
 byId('reset-order').addEventListener('click', async () => { state.sourceOrder = sourceIds(); state.sourceEnabled = {}; await saveSources(); renderSources(); });
 byId('add-api').addEventListener('click', () => addProvider());
-byId('add-deepseek').addEventListener('click', () => addProvider({ name: 'DeepSeek', base: 'https://api.deepseek.com', model: 'deepseek-chat' }));
-byId('add-openai').addEventListener('click', () => addProvider({ name: 'OpenAI', base: 'https://api.openai.com', model: 'gpt-6-luna' }));
+byId('add-deepseek').addEventListener('click', () => addProvider({ name: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' }));
+byId('add-openai').addEventListener('click', () => addProvider({ name: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-6-luna' }));
+byId('import-providers').addEventListener('click', () => byId('import-file').click());
+byId('import-file').addEventListener('change', async event => {
+  const input = event.target;
+  const file = input.files?.[0];
+  if (!file) return;
+  const status = byId('import-status');
+  try {
+    const content = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error('read'));
+      reader.onabort = () => reject(new Error('read'));
+      reader.readAsText(file);
+    });
+    if (!content.trim()) throw new Error('empty');
+    let incoming;
+    try { incoming = JSON.parse(content); }
+    catch { throw new Error('json'); }
+    const { providers, count } = mergeProviders(state.providers, incoming);
+    state.providers = providers;
+    normalizeSources();
+    await set({ providers: state.providers, sourceOrder: state.sourceOrder, sourceEnabled: state.sourceEnabled });
+    renderProviders(); renderSources();
+    status.className = 'note';
+    status.textContent = L(`已导入 ${count} 个 API`, `Imported ${count} APIs`);
+  } catch (error) {
+    const messages = {
+      empty: L('文件为空', 'The file is empty'),
+      json: L('JSON 无效', 'Invalid JSON'),
+      shape: L('API 数据格式不正确', 'Invalid API data format'),
+      read: L('无法读取文件', 'Could not read the file')
+    };
+    status.className = 'note error';
+    status.textContent = messages[error.message] || L('导入失败', 'Import failed');
+  } finally {
+    input.value = '';
+  }
+});
+byId('export-providers').addEventListener('click', () => {
+  const url = URL.createObjectURL(new Blob([JSON.stringify(state.providers, null, 2)], { type: 'application/json' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'providers.json';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+});
 byId('add-site').addEventListener('submit', async event => {
   event.preventDefault();
   const input = byId('site-input');

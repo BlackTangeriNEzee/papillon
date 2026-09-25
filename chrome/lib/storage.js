@@ -1,6 +1,6 @@
 const PRESETS = [
-  { name: 'DeepSeek', base: 'https://api.deepseek.com', model: 'deepseek-chat' },
-  { name: 'OpenAI', base: 'https://api.openai.com', model: 'gpt-6-luna' },
+  { name: 'DeepSeek', base: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  { name: 'OpenAI', base: 'https://api.openai.com/v1', model: 'gpt-6-luna' },
 ];
 
 const FREE = ['google', 'mymemory'];
