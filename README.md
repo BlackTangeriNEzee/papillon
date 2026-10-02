@@ -152,10 +152,13 @@ Copyright (c) 2026 BlackTangeriNEzee.
 
 This project is released under the [PolyForm Noncommercial License 1.0.0](LICENSE).
 You may use, change and share it for noncommercial purposes, such as personal use, study and research.
-Commercial use is not allowed.
+Commercial use is not allowed, and this includes commercial use of a changed version or of anything built on this code.
+If you share this project or a changed version, you must keep the copyright notice and the license with it; passing it off as your own work is not allowed.
 
 本项目采用 PolyForm Noncommercial 1.0.0 许可。
-个人使用、学习、研究等非商业用途可以使用、修改和分发，禁止商用。
+个人使用、学习、研究等非商业用途可以使用、修改和分发。
+禁止商用，修改后的版本和基于本项目代码做的作品同样禁止商用。
+分发本项目或修改版时，必须保留版权声明和许可证，禁止抄袭后当作自己的作品。
 
 The license covers the code in this repository only.
 The services the app calls (Youdao, Google, MyMemory, Wiktionary and any API you add) have their own terms.
