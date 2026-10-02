@@ -145,3 +145,17 @@ The app icon and the menu bar icon are made from two illustrations by `mac/make-
 The `chrome/` folder contains a Chrome extension with the same lookup logic (Youdao dictionary, Wiktionary English definitions, user API providers, and Google and MyMemory fallback), a toolbar popup, a select-to-translate bubble on web pages, and a settings page; screenshot translation and document translation are not included.
 To load it, open `chrome://extensions`, turn on "开发者模式" (Developer mode), click "加载已解压的扩展程序" (Load unpacked), and choose the `chrome` folder.
 Alt+D (Option+D on Mac) translates the current selection; change the shortcut at `chrome://extensions/shortcuts`.
+
+## License
+
+Copyright (c) 2026 BlackTangeriNEzee.
+
+This project is released under the [PolyForm Noncommercial License 1.0.0](LICENSE).
+You may use, change and share it for noncommercial purposes, such as personal use, study and research.
+Commercial use is not allowed.
+
+本项目采用 PolyForm Noncommercial 1.0.0 许可。
+个人使用、学习、研究等非商业用途可以使用、修改和分发，禁止商用。
+
+The license covers the code in this repository only.
+The services the app calls (Youdao, Google, MyMemory, Wiktionary and any API you add) have their own terms.
